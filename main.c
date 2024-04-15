@@ -18,10 +18,12 @@ int main(void)
     printf("month = %s\n", month);
     free(month);
 
-    Time d = {0};
-    TimeDate td = time_Date(d);
+    TimeDuration d = 4 * MICROSECOND;
+    printf("duration = %s\n", time_DurationString(d));
 
-    printf("month = %d\n", td.month);
+    /* Time d = {0}; */
+    /* TimeDate td = time_Date(d); */
+    /* printf("month = %d\n", td.month); */
 
     return 0;
 }

@@ -2,13 +2,34 @@
 #include <string.h>
 #include "time.h"
 
-const int64_t secondsPerMinute = 60;
-const int64_t secondsPerHour   = 60 * secondsPerMinute;
-const int64_t secondsPerDay    = 24 * secondsPerHour;
-const int64_t secondsPerWeek   = 7 * secondsPerDay;
-const int64_t daysPer400Years  = 365*400 + 97;
-const int64_t daysPer100Years  = 365*100 + 24;
-const int64_t daysPer4Years    = 365*4 + 1;
+// utcLoc is separate so that get can refer to &utcLoc
+// and ensure that it never returns a nil *Location,
+// even if a badly behaved client has changed UTC.
+static TimeLocation time__utcLoc = (TimeLocation){.name = "UTC"};
+
+// UTC represents Universal Coordinated Time (UTC).
+TimeLocation *time_UTC = &time__utcLoc;
+                                               //
+// localLoc is separate so that initLocal can initialize
+// it even if a client has changed Local.
+static TimeLocation time__localLoc;
+
+// Local represents the system's local time zone.
+// On Unix systems, Local consults the TZ environment
+// variable to find the time zone to use. No TZ means
+// use the system default /etc/localtime.
+// TZ="" means use UTC.
+// TZ="foo" means use file foo in the system timezone directory.
+TimeLocation *time_Local = &time__localLoc;
+
+
+static const int64_t secondsPerMinute = 60;
+static const int64_t secondsPerHour   = 60 * secondsPerMinute;
+static const int64_t secondsPerDay    = 24 * secondsPerHour;
+static const int64_t secondsPerWeek   = 7 * secondsPerDay;
+static const int64_t daysPer400Years  = 365*400 + 97;
+static const int64_t daysPer100Years  = 365*100 + 24;
+static const int64_t daysPer4Years    = 365*4 + 1;
 
 // Computations on time.
 //
@@ -93,28 +114,28 @@ const int64_t daysPer4Years    = 365*4 + 1;
 	// The unsigned zero year for internal calculations.
 	// Must be 1 mod 400, and times before it will not compute correctly,
 	// but otherwise can be changed at will.
-const int64_t	absoluteZeroYear = -292277022399;
+static const int64_t	absoluteZeroYear = -292277022399;
 
 // The year of the zero Time.
 // Assumed by the unixToInternal computation below.
-const int64_t	internalYear = 1;
+static const int64_t	internalYear = 1;
 
 // Offsets to convert between internal and absolute or Unix times.
-const int64_t	absoluteToInternal = (absoluteZeroYear - internalYear) * 365.2425 * secondsPerDay;
-const int64_t	internalToAbsolute       = -absoluteToInternal;
+static const int64_t	absoluteToInternal = (absoluteZeroYear - internalYear) * 365.2425 * secondsPerDay;
+static const int64_t	internalToAbsolute       = -absoluteToInternal;
 
-const int64_t	unixToInternal = (1969*365 + 1969/4 - 1969/100 + 1969/400) * secondsPerDay;
-const int64_t	internalToUnix = -unixToInternal;
+static const int64_t	unixToInternal = (1969*365 + 1969/4 - 1969/100 + 1969/400) * secondsPerDay;
+static const int64_t	internalToUnix = -unixToInternal;
 
-const int64_t	wallToInternal = (1884*365 + 1884/4 - 1884/100 + 1884/400) * secondsPerDay;
+static const int64_t	wallToInternal = (1884*365 + 1884/4 - 1884/100 + 1884/400) * secondsPerDay;
 
-const int64_t hasMonotonic = (int64_t)1 << 63;
-const int64_t maxWall      = wallToInternal + (((int64_t)1<<33) - 1); // year 2157
-const int64_t minWall      = wallToInternal;               // year 1885
-const int64_t nsecMask     = (1<<30) - 1;
-const int64_t nsecShift    = 30;
+static const int64_t hasMonotonic = (int64_t)1 << 63;
+static const int64_t maxWall      = wallToInternal + (((int64_t)1<<33) - 1); // year 2157
+static const int64_t minWall      = wallToInternal;               // year 1885
+static const int64_t nsecMask     = (1<<30) - 1;
+static const int64_t nsecShift    = 30;
 
-static char *longDayNames[] = {
+static const char *longDayNames[] = {
 	"Sunday",
 	"Monday",
 	"Tuesday",
@@ -124,7 +145,7 @@ static char *longDayNames[] = {
 	"Saturday",
 };
 
-static char *shortDayNames[] = {
+static const char *shortDayNames[] = {
 	"Sun",
 	"Mon",
 	"Tue",
@@ -134,7 +155,7 @@ static char *shortDayNames[] = {
 	"Sat",
 };
 
-static char *shortMonthNames[] = {
+static const char *shortMonthNames[] = {
 	"Jan",
 	"Feb",
 	"Mar",
@@ -149,7 +170,7 @@ static char *shortMonthNames[] = {
 	"Dec",
 };
 
-static char *longMonthNames[] = {
+static const char *longMonthNames[] = {
 	"January",
 	"February",
 	"March",
@@ -229,9 +250,9 @@ void time_addSec(Time *t, int64_t d)
 	if ((sum > t->ext) == (d > 0)) {
 		t->ext = sum;
 	} else if (d > 0) {
-		t->ext = ((int64_t)1<<63) - 1; // TODO FIX: suppress overflow warning
+		t->ext = ((uint64_t)1<<63) - 1;
 	} else {
-		t->ext = -(((int64_t)1<<63) - 1); // TODO FIX: suppress overflow warning
+		t->ext = -(((uint64_t)1<<63) - 1);
 	}
 }
 
@@ -612,7 +633,7 @@ TimeWeekday time_Weekday(Time t)
 // Week ranges from 1 to 53. Jan 01 to Jan 03 of year n might belong to
 // week 52 or 53 of year n-1, and Dec 29 to Dec 31 might belong to week 1
 // of year n+1.
-TimeWeek ISOWeek(Time t)
+TimeWeek time_ISOWeek(Time t)
 {
 	// According to the rule that the first calendar week of a calendar year is
 	// the week including the first Thursday of that year, and that the last one is
@@ -652,8 +673,167 @@ TimeClock time_absClock(uint64_t abs)
 }
 
 // Clock returns the hour, minute, and second within the day specified by t.
-TimeClock  Clock(Time t)
+TimeClock  time_Clock(Time t)
 {
 	return time_absClock(time_abs(t));
+}
+
+// Hour returns the hour within the day specified by t, in the range [0, 23].
+int time_Hour(Time t)
+{
+	return (time_abs(t)%secondsPerDay) / secondsPerHour;
+}
+
+// Minute returns the minute offset within the hour specified by t, in the range [0, 59].
+int time_Minute(Time t)
+{
+	return (time_abs(t)%secondsPerHour) / secondsPerMinute;
+}
+
+// Second returns the second offset within the minute specified by t, in the range [0, 59].
+int time_Second(Time t)
+{
+	return (time_abs(t) % secondsPerMinute);
+}
+
+// Nanosecond returns the nanosecond offset within the second specified by t,
+// in the range [0, 999999999].
+int time_Nanosecond(Time t)
+{
+	return time_nsec(&t);
+}
+
+// YearDay returns the day of the year specified by t, in the range [1,365] for non-leap years,
+// and [1,366] in leap years.
+int time_YearDay(Time t)
+{
+    struct time_date td = time_date(t, false);
+	return td.yday + 1;
+}
+
+static const TimeDuration minDuration = -((uint64_t)1 << 63);
+static const TimeDuration maxDuration = ((uint64_t)1<<63) - 1;
+
+struct time_fmtFrac {
+    int nw;
+    uint64_t nv;
+};
+// fmtFrac formats the fraction of v/10**prec (e.g., ".12345") into the
+// tail of buf, omitting trailing zeros. It omits the decimal
+// point too when the fraction is 0. It returns the index where the
+// output bytes begin and the value v/10**prec.
+struct time_fmtFrac time_fmtFrac(char buf[], size_t bufLen, uint64_t v, int prec)
+{
+	// Omit trailing zeros up to and including decimal point.
+	size_t w = bufLen;
+	bool print = false;
+	for (int i = 0; i < prec; i++) {
+		int digit = v % 10;
+		print = print || digit != 0;
+		if (print) {
+			w--;
+			buf[w] = digit + '0';
+		}
+		v /= 10;
+	}
+	if (print) {
+		w--;
+		buf[w] = '.';
+	}
+	return (struct time_fmtFrac){ .nw = w, .nv = v };
+}
+
+// format formats the representation of d into the end of buf and
+// returns the offset of the first character.
+int time_durationFormat(TimeDuration d, char buf[32])
+{
+	// Largest time is 2540400h10m10.000000000s
+    size_t w = 32;
+
+	uint64_t u = d;
+	bool neg = d < 0;
+	if (neg) {
+		u = -u;
+	}
+
+	if (u < SECOND) {
+		// Special case: if duration is smaller than a second,
+		// use smaller units, like 1.2ms
+		int prec = 0;
+		w--;
+		buf[w] = 's';
+		w--;
+		if (u == 0) {
+			buf[w] = '0';
+			return w;
+        } else if (u < MICROSECOND) {
+			// print nanoseconds
+			prec = 0;
+			buf[w] = 'n';
+        } else if (u < MILLISECOND) {
+			// print microseconds
+			prec = 3;
+			// U+00B5 'µ' micro sign == 0xC2 0xB5
+			w--; // Need room for two bytes.
+            memcpy(&buf[w], "µ", 2);
+        } else {
+			// print milliseconds
+			prec = 6;
+			buf[w] = 'm';
+		}
+        struct time_fmtFrac ff = time_fmtFrac(buf, w, u, prec);
+        w = ff.nw;
+        u = ff.nv;
+		w = time_fmtInt(buf, w, u);
+	} else {
+		w--;
+		buf[w] = 's';
+
+        struct time_fmtFrac ff = time_fmtFrac(buf, w, u, 9);
+        w = ff.nw;
+        u = ff.nv;
+
+		// u is now integer seconds
+		w = time_fmtInt(buf, w, u%60);
+		u /= 60;
+
+		// u is now integer minutes
+		if (u > 0) {
+			w--;
+			buf[w] = 'm';
+            w = time_fmtInt(buf, w, u%60);
+			u /= 60;
+
+			// u is now integer hours
+			// Stop at hours because days can be different lengths.
+			if (u > 0) {
+				w--;
+				buf[w] = 'h';
+                w = time_fmtInt(buf, w, u);
+			}
+		}
+	}
+
+	if (neg) {
+		w--;
+		buf[w] = '-';
+	}
+
+	return w;
+}
+
+// String returns a string representing the duration in the form "72h3m0.5s".
+// Leading zero units are omitted. As a special case, durations less than one
+// second format use a smaller unit (milli-, micro-, or nanoseconds) to ensure
+// that the leading digit is non-zero. The zero duration formats as 0s.
+char *time_DurationString(TimeDuration d)
+{
+	// This is inlinable to take advantage of "function outlining".
+	// Thus, the caller can decide whether a string must be heap allocated.
+	char arr[32];
+	int n = time_durationFormat(d, arr);
+    char *str = malloc(32 - n + 1);
+    strncpy(str, &arr[n], 32-n);
+    return str;
 }
 

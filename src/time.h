@@ -210,26 +210,8 @@ typedef struct Time {
 	TimeLocation *loc;
 } Time;
 
-
-// utcLoc is separate so that get can refer to &utcLoc
-// and ensure that it never returns a nil *Location,
-// even if a badly behaved client has changed UTC.
-extern TimeLocation time__utcLoc = (TimeLocation){.name = "UTC"};
-
-// UTC represents Universal Coordinated Time (UTC).
-static TimeLocation *time_UTC = &time__utcLoc; // TODO: Consider how this work across transation units.
-                                               //
-// localLoc is separate so that initLocal can initialize
-// it even if a client has changed Local.
-static TimeLocation time__localLoc;
-
-// Local represents the system's local time zone.
-// On Unix systems, Local consults the TZ environment
-// variable to find the time zone to use. No TZ means
-// use the system default /etc/localtime.
-// TZ="" means use UTC.
-// TZ="foo" means use file foo in the system timezone directory.
-static TimeLocation *TimeLocal = &time__localLoc;
+extern TimeLocation *time_UTC;
+extern TimeLocation *time_Local;
 
 // A Month specifies a month of the year (January = 1, ...).
 typedef enum {
@@ -273,6 +255,31 @@ typedef struct {
     int hour, min, sec;
 } TimeClock;
 
+// A Duration represents the elapsed time between two instants
+// as an int64 nanosecond count. The representation limits the
+// largest representable duration to approximately 290 years.
+typedef int64_t TimeDuration;
+
+// Common durations. There is no definition for units of Day or larger
+// to avoid confusion across daylight savings time zone transitions.
+//
+// To count the number of units in a Duration, divide:
+//
+//	second := time.Second
+//	fmt.Print(int64(second/time.Millisecond)) // prints 1000
+//
+// To convert an integer number of units to a Duration, multiply:
+//
+//	seconds := 10
+//	fmt.Print(time.Duration(seconds)*time.Second) // prints 10s
+
+static const TimeDuration NANOSECOND  = 1;
+static const TimeDuration MICROSECOND = 1000 * NANOSECOND;
+static const TimeDuration MILLISECOND = 1000 * MICROSECOND;
+static const TimeDuration SECOND      = 1000 * MILLISECOND;
+static const TimeDuration MINUTE      = 60 * SECOND;
+static const TimeDuration HOUR        = 60 * MINUTE;
+
 bool time_After(Time t, Time u);
 bool time_Before(Time t, Time u);
 int time_Compare(Time t, Time u);
@@ -287,8 +294,13 @@ int time_Year(Time t);
 TimeMonth time_Month(Time t);
 int time_Day(Time t);
 TimeWeekday time_Weekday(Time t);
-TimeWeek ISOWeek(Time t);
-TimeClock  Clock(Time t);
+TimeWeek time_ISOWeek(Time t);
+TimeClock  time_Clock(Time t);
+int time_Hour(Time t);
+int time_Minute(Time t);
+int time_Second(Time t);
+int time_Nanosecond(Time t);
+int time_YearDay(Time t);
 
 #endif
 
