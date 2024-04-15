@@ -6,10 +6,11 @@ all: timetest
 timetest: main.c nanotime.h
 	clang $(CFLAGS) main.c -o timetest
 
-gen: nanotime.h
-
 nanotime.h: gen.sh src/time.c src/time.h
 	sh gen.sh > nanotime.h
+
+run: all
+	./timetest
 
 clean:
 	rm -f nanotime.h
