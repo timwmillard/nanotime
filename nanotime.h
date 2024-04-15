@@ -106,14 +106,14 @@ typedef struct {
 	char name[3]; // abbreviated name, "CET"
 	int  offset;  // seconds east of UTC
 	bool isDST;   // is this zone Daylight Savings Time?
-} nt__zone;
+} nt_zone;
 
 // A zoneTrans represents a single time zone transition.
 typedef struct {
 	int64_t when;       // transition time, in seconds since 1970 GMT
 	uint8_t index;      // the index of the zone that goes into effect at that time
 	bool  isstd, isutc; // ignored - no idea what these mean
-} nt__zoneTrans;
+} nt_zoneTrans;
 
 // A Location maps time instants to the zone in use at that time.
 // Typically, the Location represents the collection of time offsets
@@ -125,8 +125,8 @@ typedef struct {
 // boundaries.
 typedef struct {
 	char *name;
-	nt__zone *zone;    // []zone
-	nt__zoneTrans *tx; // []zoneTrans
+	nt_zone *zone;    // []zone
+	nt_zoneTrans *tx; // []zoneTrans
 
 	// The tzdata information can be followed by a string that describes
 	// how to handle DST transitions not recorded in zoneTrans.
@@ -146,7 +146,7 @@ typedef struct {
 	// to lookup.
 	int64_t cacheStart;
 	int64_t cacheEnd;
-	nt__zone *cacheZone;
+	nt_zone *cacheZone;
 } nt_Location;
 
 // A Time represents an instant in time with nanosecond precision.
@@ -264,6 +264,8 @@ typedef struct {
 typedef int64_t nt_Duration;
 
 
+void nt_init(void);
+
 bool nt_TimeAfter(nt_Time t, nt_Time u);
 bool nt_Before(nt_Time t, nt_Time u);
 int nt_TimeCompare(nt_Time t, nt_Time u);
@@ -316,14 +318,14 @@ nt_Duration nt_TimeSub(nt_Time t, nt_Time u);
 // utcLoc is separate so that get can refer to &utcLoc
 // and ensure that it never returns a nil *Location,
 // even if a badly behaved client has changed UTC.
-static nt_Location nt__utcLoc = (nt_Location){.name = "UTC"};
+static nt_Location nt_utcLoc = (nt_Location){.name = "UTC"};
 
 // UTC represents Universal Coordinated Time (UTC).
-nt_Location *nt_UTC = &nt__utcLoc;
+nt_Location *nt_UTC = &nt_utcLoc;
                                                //
 // localLoc is separate so that initLocal can initialize
 // it even if a client has changed Local.
-static nt_Location nt__localLoc;
+static nt_Location nt_localLoc;
 
 // Local represents the system's local time zone.
 // On Unix systems, Local consults the TZ environment
@@ -331,16 +333,16 @@ static nt_Location nt__localLoc;
 // use the system default /etc/localtime.
 // TZ="" means use UTC.
 // TZ="foo" means use file foo in the system timezone directory.
-nt_Location *nt_Local = &nt__localLoc;
+nt_Location *nt_Local = &nt_localLoc;
 
 
-const int64_t secondsPerMinute = 60;
-const int64_t secondsPerHour   = 60 * secondsPerMinute;
-const int64_t secondsPerDay    = 24 * secondsPerHour;
-const int64_t secondsPerWeek   = 7 * secondsPerDay;
-const int64_t daysPer400Years  = 365*400 + 97;
-const int64_t daysPer100Years  = 365*100 + 24;
-const int64_t daysPer4Years    = 365*4 + 1;
+const int64_t nt_secondsPerMinute = 60;
+const int64_t nt_secondsPerHour   = 60 * nt_secondsPerMinute;
+const int64_t nt_secondsPerDay    = 24 * nt_secondsPerHour;
+const int64_t nt_secondsPerWeek   = 7 * nt_secondsPerDay;
+const int64_t nt_daysPer400Years  = 365*400 + 97;
+const int64_t nt_daysPer100Years  = 365*100 + 24;
+const int64_t nt_daysPer4Years    = 365*4 + 1;
 
 // Computations on time.
 //
@@ -425,28 +427,28 @@ const int64_t daysPer4Years    = 365*4 + 1;
 	// The unsigned zero year for internal calculations.
 	// Must be 1 mod 400, and times before it will not compute correctly,
 	// but otherwise can be changed at will.
-static const int64_t	absoluteZeroYear = -292277022399;
+static const int64_t	nt_absoluteZeroYear = -292277022399;
 
 // The year of the zero Time.
 // Assumed by the unixToInternal computation below.
-static const int64_t	internalYear = 1;
+static const int64_t	nt_internalYear = 1;
 
 // Offsets to convert between internal and absolute or Unix times.
-static const int64_t	absoluteToInternal = (absoluteZeroYear - internalYear) * 365.2425 * secondsPerDay;
-static const int64_t	internalToAbsolute       = -absoluteToInternal;
+static const int64_t	nt_absoluteToInternal = (nt_absoluteZeroYear - nt_internalYear) * 365.2425 * nt_secondsPerDay;
+static const int64_t	nt_internalToAbsolute       = -nt_absoluteToInternal;
 
-static const int64_t	unixToInternal = (1969*365 + 1969/4 - 1969/100 + 1969/400) * secondsPerDay;
-static const int64_t	internalToUnix = -unixToInternal;
+static const int64_t	nt_unixToInternal = (1969*365 + 1969/4 - 1969/100 + 1969/400) * nt_secondsPerDay;
+static const int64_t	nt_internalToUnix = -nt_unixToInternal;
 
-static const int64_t	wallToInternal = (1884*365 + 1884/4 - 1884/100 + 1884/400) * secondsPerDay;
+static const int64_t	nt_wallToInternal = (1884*365 + 1884/4 - 1884/100 + 1884/400) * nt_secondsPerDay;
 
-static const int64_t hasMonotonic = (int64_t)1 << 63;
-static const int64_t maxWall      = wallToInternal + (((int64_t)1<<33) - 1); // year 2157
-static const int64_t minWall      = wallToInternal;               // year 1885
-static const int64_t nsecMask     = (1<<30) - 1;
-static const int64_t nsecShift    = 30;
+static const int64_t nt_hasMonotonic = (int64_t)1 << 63;
+static const int64_t nt_maxWall      = nt_wallToInternal + (((int64_t)1<<33) - 1); // year 2157
+static const int64_t nt_minWall      = nt_wallToInternal;               // year 1885
+static const int64_t nt_nsecMask     = (1<<30) - 1;
+static const int64_t nt_nsecShift    = 30;
 
-static const char *longDayNames[] = {
+static const char *nt_longDayNames[] = {
 	"Sunday",
 	"Monday",
 	"Tuesday",
@@ -456,7 +458,7 @@ static const char *longDayNames[] = {
 	"Saturday",
 };
 
-static const char *shortDayNames[] = {
+static const char *nt_shortDayNames[] = {
 	"Sun",
 	"Mon",
 	"Tue",
@@ -466,7 +468,7 @@ static const char *shortDayNames[] = {
 	"Sat",
 };
 
-static const char *shortMonthNames[] = {
+static const char *nt_shortMonthNames[] = {
 	"Jan",
 	"Feb",
 	"Mar",
@@ -481,7 +483,7 @@ static const char *shortMonthNames[] = {
 	"Dec",
 };
 
-static const char *longMonthNames[] = {
+static const char *nt_longMonthNames[] = {
 	"January",
 	"February",
 	"March",
@@ -497,7 +499,7 @@ static const char *longMonthNames[] = {
 };
 
 // Load local timezone data??
-void nt_nanotime_init(void)
+void nt_init(void)
 {
 }
 
@@ -513,14 +515,14 @@ void nt_nanotime_init(void)
 // nsec returns the time's nanoseconds.
 int32_t nt_Time_nsec(nt_Time *t)
 {
-	return t->wall & nsecMask;
+	return t->wall & nt_nsecMask;
 }
 
 // sec returns the time's seconds since Jan 1 year 1.
 int64_t nt_Time_sec(nt_Time *t)
 {
-	if ((t->wall&hasMonotonic) != 0) {
-		return wallToInternal + (t->wall<<1>>(nsecShift+1));
+	if ((t->wall&nt_hasMonotonic) != 0) {
+		return nt_wallToInternal + (t->wall<<1>>(nt_nsecShift+1));
 	}
 	return t->ext;
 }
@@ -528,27 +530,27 @@ int64_t nt_Time_sec(nt_Time *t)
 // unixSec returns the time's seconds since Jan 1 1970 (Unix time).
 int64_t nt_Time_unixSec(nt_Time *t)
 {
-    return nt_Time_sec(t) + internalToUnix;
+    return nt_Time_sec(t) + nt_internalToUnix;
 }
 
 
 // stripMono strips the monotonic clock reading in t.
 void nt_Time_stripMono(nt_Time *t)
 {
-	if ((t->wall&hasMonotonic) != 0) {
+	if ((t->wall&nt_hasMonotonic) != 0) {
 		t->ext = nt_Time_sec(t);
-		t->wall &= nsecMask;
+		t->wall &= nt_nsecMask;
 	}
 }
 
 // addSec adds d seconds to the time.
 void nt_Time_addSec(nt_Time *t, int64_t d)
 {
-	if ((t->wall&hasMonotonic) != 0) {
-		int64_t sec = t->wall << 1 >> (nsecShift + 1);
+	if ((t->wall&nt_hasMonotonic) != 0) {
+		int64_t sec = t->wall << 1 >> (nt_nsecShift + 1);
 		int64_t dsec = sec + d;
 		if (0 <= dsec && dsec <= ((int64_t)1<<33)-1) {
-			t->wall = t->wall&nsecMask | dsec<<nsecShift | hasMonotonic;
+			t->wall = t->wall&nt_nsecMask | dsec<<nt_nsecShift | nt_hasMonotonic;
 			return;
 		}
 		// Wall second now out of range for packed field.
@@ -570,7 +572,7 @@ void nt_Time_addSec(nt_Time *t, int64_t d)
 // setLoc sets the location associated with the time.
 void nt_Time_setLoc(nt_Time *t, nt_Location *loc)
 {
-	if (strcmp(loc->name, nt__utcLoc.name) == 0) {
+	if (strcmp(loc->name, nt_utcLoc.name) == 0) {
 		loc = NULL;
 	}
 	nt_Time_stripMono(t);
@@ -583,12 +585,12 @@ void nt_Time_setLoc(nt_Time *t, nt_Location *loc)
 // setMono is a no-op.
 void nt_Time_setMono(nt_Time *t, int64_t m)
 {
-	if ((t->wall&hasMonotonic) == 0) {
+	if ((t->wall&nt_hasMonotonic) == 0) {
 		int64_t sec = t->ext;
-		if (sec < minWall || maxWall < sec) {
+		if (sec < nt_minWall || nt_maxWall < sec) {
 			return;
 		}
-		t->wall |= hasMonotonic | (sec-minWall)<<nsecShift;
+		t->wall |= nt_hasMonotonic | (sec-nt_minWall)<<nt_nsecShift;
 	}
 	t->ext = m;
 }
@@ -600,7 +602,7 @@ void nt_Time_setMono(nt_Time *t, int64_t m)
 // monotonic clock reading as well.
 int64_t nt_Time_mono(nt_Time *t)
 {
-	if ((t->wall&hasMonotonic) == 0) {
+	if ((t->wall&nt_hasMonotonic) == 0) {
 		return 0;
 	}
 	return t->ext;
@@ -609,7 +611,7 @@ int64_t nt_Time_mono(nt_Time *t)
 // After reports whether the time instant t is after u.
 bool nt_TimeAfter(nt_Time t, nt_Time u)
 {
-	if ((t.wall&u.wall&hasMonotonic) != 0) {
+	if ((t.wall&u.wall&nt_hasMonotonic) != 0) {
 		return t.ext > u.ext;
 	}
 	int64_t ts = nt_Time_sec(&t);
@@ -620,7 +622,7 @@ bool nt_TimeAfter(nt_Time t, nt_Time u)
 // Before reports whether the time instant t is before u.
 bool nt_TimeBefore(nt_Time t, nt_Time u)
 {
-	if ((t.wall&u.wall&hasMonotonic) != 0) {
+	if ((t.wall&u.wall&nt_hasMonotonic) != 0) {
 		return t.ext < u.ext;
 	}
 	int64_t ts = nt_Time_sec(&t);
@@ -630,10 +632,10 @@ bool nt_TimeBefore(nt_Time t, nt_Time u)
 
 // Compare compares the time instant t with u. If t is before u, it returns -1;
 // if t is after u, it returns +1; if they're the same, it returns 0.
-int time_Compare(nt_Time t, nt_Time u)
+int nt_TimeCompare(nt_Time t, nt_Time u)
 {
 	int64_t tc, uc;
-	if ((t.wall&u.wall&hasMonotonic) != 0) {
+	if ((t.wall&u.wall&nt_hasMonotonic) != 0) {
 		tc = t.ext;
         uc = u.ext;
 	} else {
@@ -658,7 +660,7 @@ int time_Compare(nt_Time t, nt_Time u)
 // Time values; most code should use Equal instead.
 bool nt_TimeEqual(nt_Time t, nt_Time u)
 {
-	if ((t.wall&u.wall&hasMonotonic) != 0) {
+	if ((t.wall&u.wall&nt_hasMonotonic) != 0) {
 		return t.ext == u.ext;
 	}
 	return nt_Time_sec(&t) == nt_Time_sec(&u) && nt_Time_nsec(&t) == nt_Time_nsec(&u);
@@ -687,8 +689,8 @@ int nt_fmtInt(char buf[], size_t bufLen, uint64_t v)
 char *nt_MonthString(nt_Month m) {
     char *str;
 	if (nt_JANUARY <= m && m <= nt_DECEMBER) {
-        str = malloc(strlen(longMonthNames[m-1]) + 1);
-        strcpy(str, longMonthNames[m-1]);
+        str = malloc(strlen(nt_longMonthNames[m-1]) + 1);
+        strcpy(str, nt_longMonthNames[m-1]);
 		return str;
 	}
     const size_t bufLen = 20;
@@ -709,8 +711,8 @@ char *nt_WeekdayString(nt_Weekday d)
 {
     char *str;
 	if (nt_SUNDAY <= d && d <= nt_SATURDAY) {
-        str = malloc(strlen(longDayNames[d]) + 1);
-        strcpy(str, longDayNames[d]);
+        str = malloc(strlen(nt_longDayNames[d]) + 1);
+        strcpy(str, nt_longDayNames[d]);
 		return str;
 	}
     const size_t bufLen = 20;
@@ -739,11 +741,11 @@ uint64_t nt_Time_abs(nt_Time t)
 {
 	nt_Location *l = t.loc;
 	// Avoid function calls when possible.
-	if (l == NULL || l == &nt__localLoc) {
+	if (l == NULL || l == &nt_localLoc) {
 		/* l = l.get(); */
 	}
 	int64_t sec = nt_Time_unixSec(&t);
-	if (l != &nt__utcLoc) {
+	if (l != &nt_utcLoc) {
 		if (l->cacheZone != NULL && l->cacheStart <= sec && sec < l->cacheEnd) {
 			sec += l->cacheZone->offset;
 		} else {
@@ -751,7 +753,7 @@ uint64_t nt_Time_abs(nt_Time t)
 			/* sec += offset; */
 		}
 	}
-	return sec + (unixToInternal + internalToAbsolute);
+	return sec + (nt_unixToInternal + nt_internalToAbsolute);
 }
 
 struct nt_Timelocabs{
@@ -764,12 +766,12 @@ struct nt_Timelocabs{
  struct nt_Timelocabs nt_Time_locabs(nt_Time t) {
     struct nt_Timelocabs ret = {0};
 	nt_Location *l = t.loc;
-	if (l == NULL || l == &nt__localLoc) {
+	if (l == NULL || l == &nt_localLoc) {
 		/* l = l.get(); */
 	}
 	// Avoid function call if we hit the local time cache.
 	int64_t sec = nt_Time_unixSec(&t);
-	if (l != &nt__utcLoc) {
+	if (l != &nt_utcLoc) {
 		if (l->cacheZone != NULL && l->cacheStart <= sec && sec < l->cacheEnd) {
 			ret.name = l->cacheZone->name;
 			ret.offset = l->cacheZone->offset;
@@ -780,11 +782,11 @@ struct nt_Timelocabs{
 	} else {
 		ret.name = "UTC";
 	}
-	ret.abs = (sec + (unixToInternal + internalToAbsolute));
+	ret.abs = (sec + (nt_unixToInternal + nt_internalToAbsolute));
 	return ret;
 }
 
-bool time_isLeap(int year)
+bool nt_isLeap(int year)
 {
 	return year%4 == 0 && (year%100 != 0 || year%400 == 0);
 }
@@ -817,28 +819,28 @@ struct nt_date nt_Time_absDate(uint64_t abs , bool full)
 {
     struct nt_date ret = {0};
 	// Split into time and day.
-	uint64_t d = abs / secondsPerDay;
+	uint64_t d = abs / nt_secondsPerDay;
 
 	// Account for 400 year cycles.
-	uint64_t n = d / daysPer400Years;
+	uint64_t n = d / nt_daysPer400Years;
 	uint64_t y = 400 * n;
-	d -= daysPer400Years * n;
+	d -= nt_daysPer400Years * n;
 
 	// Cut off 100-year cycles.
 	// The last cycle has one extra leap year, so on the last day
 	// of that year, day / daysPer100Years will be 4 instead of 3.
 	// Cut it back down to 3 by subtracting n>>2.
-	n = d / daysPer100Years;
+	n = d / nt_daysPer100Years;
 	n -= n >> 2;
 	y += 100 * n;
-	d -= daysPer100Years * n;
+	d -= nt_daysPer100Years * n;
 
 	// Cut off 4-year cycles.
 	// The last cycle has a missing leap year, which does not
 	// affect the computation.
-	n = d / daysPer4Years;
+	n = d / nt_daysPer4Years;
 	y += 4 * n;
-	d -= daysPer4Years * n;
+	d -= nt_daysPer4Years * n;
 
 	// Cut off years within a 4-year cycle.
 	// The last year is a leap year, so on the last day of that year,
@@ -849,7 +851,7 @@ struct nt_date nt_Time_absDate(uint64_t abs , bool full)
 	y += n;
 	d -= 365 * n;
 
-	ret.year = y + absoluteZeroYear;
+	ret.year = y + nt_absoluteZeroYear;
 	ret.yday = d;
 
 	if (!full) {
@@ -857,7 +859,7 @@ struct nt_date nt_Time_absDate(uint64_t abs , bool full)
 	}
 
 	ret.day = ret.yday;
-	if (time_isLeap(ret.year)) {
+	if (nt_isLeap(ret.year)) {
 		// Leap year
 		if (ret.day > 31+29-1) {
 			// After leap day; pretend it wasn't there.
@@ -930,8 +932,8 @@ int nt_TimeDay(nt_Time t)
 nt_Weekday nt_Time_absWeekday(uint64_t abs)
 {
 	// January 1 of the absolute year, like January 1 of 2001, was a Monday.
-	uint64_t sec = (abs + nt_MONDAY*secondsPerDay) % secondsPerWeek;
-	return sec / secondsPerDay;
+	uint64_t sec = (abs + nt_MONDAY*nt_secondsPerDay) % nt_secondsPerWeek;
+	return sec / nt_secondsPerDay;
 }
 
 // Weekday returns the day of the week specified by t.
@@ -963,7 +965,7 @@ nt_Week nt_TimeISOWeek(nt_Time t)
 		d = -3;
 	}
 	// find the Thursday of the calendar week
-	abs += d * secondsPerDay;
+	abs += d * nt_secondsPerDay;
 	struct nt_date td = nt_Time_absDate(abs, false);
     return (nt_Week){
         .year = td.year,
@@ -975,11 +977,11 @@ nt_Week nt_TimeISOWeek(nt_Time t)
 nt_Clock nt_Time_absClock(uint64_t abs)
 {
     nt_Clock ret = {0};
-	ret.sec = abs % secondsPerDay;
-	ret.hour = ret.sec / secondsPerHour;
-	ret.sec -= ret.hour * secondsPerHour;
-	ret.min = ret.sec / secondsPerMinute;
-	ret.sec -= ret.min * secondsPerMinute;
+	ret.sec = abs % nt_secondsPerDay;
+	ret.hour = ret.sec / nt_secondsPerHour;
+	ret.sec -= ret.hour * nt_secondsPerHour;
+	ret.min = ret.sec / nt_secondsPerMinute;
+	ret.sec -= ret.min * nt_secondsPerMinute;
 	return ret;
 }
 
@@ -992,19 +994,19 @@ nt_Clock  nt_TimeClock(nt_Time t)
 // Hour returns the hour within the day specified by t, in the range [0, 23].
 int nt_TimeHour(nt_Time t)
 {
-	return (nt_Time_abs(t)%secondsPerDay) / secondsPerHour;
+	return (nt_Time_abs(t)%nt_secondsPerDay) / nt_secondsPerHour;
 }
 
 // Minute returns the minute offset within the hour specified by t, in the range [0, 59].
 int nt_TimeMinute(nt_Time t)
 {
-	return (nt_Time_abs(t)%secondsPerHour) / secondsPerMinute;
+	return (nt_Time_abs(t)%nt_secondsPerHour) / nt_secondsPerMinute;
 }
 
 // Second returns the second offset within the minute specified by t, in the range [0, 59].
 int nt_TimeSecond(nt_Time t)
 {
-	return (nt_Time_abs(t) % secondsPerMinute);
+	return (nt_Time_abs(t) % nt_secondsPerMinute);
 }
 
 // Nanosecond returns the nanosecond offset within the second specified by t,
@@ -1284,9 +1286,9 @@ nt_Time nt_TimeAdd(nt_Time t , nt_Duration d)
 		dsec--;
 		nsec += 1e9;
 	}
-	t.wall = t.wall & ~nsecMask | nsec; // update nsec
+	t.wall = t.wall & ~nt_nsecMask | nsec; // update nsec
 	nt_Time_addSec(&t, dsec);
-	if ((t.wall&hasMonotonic) != 0) {
+	if ((t.wall&nt_hasMonotonic) != 0) {
 		int64_t te = t.ext + d;
 		if (d < 0 && te > t.ext || d > 0 && te < t.ext) {
 			// Monotonic clock reading now out of range; degrade to wall-only.
@@ -1314,9 +1316,9 @@ nt_Duration nt_Time_subMono(int64_t t, int64_t u)
 // value that can be stored in a Duration, the maximum (or minimum) duration
 // will be returned.
 // To compute t-d for a duration d, use t.Add(-d).
-nt_Duration time_Sub(nt_Time t, nt_Time u)
+nt_Duration nt_TimeSub(nt_Time t, nt_Time u)
 {
-	if ((t.wall&u.wall&hasMonotonic) != 0) {
+	if ((t.wall&u.wall&nt_hasMonotonic) != 0) {
 		return nt_Time_subMono(t.ext, u.ext);
 	}
 	nt_Duration d = (nt_Time_sec(&t)-nt_Time_sec(&u)) * nt_SECOND + (nt_Time_nsec(&t)-nt_Time_nsec(&u));

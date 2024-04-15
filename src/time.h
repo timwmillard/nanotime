@@ -103,14 +103,14 @@ typedef struct {
 	char name[3]; // abbreviated name, "CET"
 	int  offset;  // seconds east of UTC
 	bool isDST;   // is this zone Daylight Savings Time?
-} nt__zone;
+} nt_zone;
 
 // A zoneTrans represents a single time zone transition.
 typedef struct {
 	int64_t when;       // transition time, in seconds since 1970 GMT
 	uint8_t index;      // the index of the zone that goes into effect at that time
 	bool  isstd, isutc; // ignored - no idea what these mean
-} nt__zoneTrans;
+} nt_zoneTrans;
 
 // A Location maps time instants to the zone in use at that time.
 // Typically, the Location represents the collection of time offsets
@@ -122,8 +122,8 @@ typedef struct {
 // boundaries.
 typedef struct {
 	char *name;
-	nt__zone *zone;    // []zone
-	nt__zoneTrans *tx; // []zoneTrans
+	nt_zone *zone;    // []zone
+	nt_zoneTrans *tx; // []zoneTrans
 
 	// The tzdata information can be followed by a string that describes
 	// how to handle DST transitions not recorded in zoneTrans.
@@ -143,7 +143,7 @@ typedef struct {
 	// to lookup.
 	int64_t cacheStart;
 	int64_t cacheEnd;
-	nt__zone *cacheZone;
+	nt_zone *cacheZone;
 } nt_Location;
 
 // A Time represents an instant in time with nanosecond precision.
@@ -260,6 +260,8 @@ typedef struct {
 // largest representable duration to approximately 290 years.
 typedef int64_t nt_Duration;
 
+
+void nt_init(void);
 
 bool nt_TimeAfter(nt_Time t, nt_Time u);
 bool nt_Before(nt_Time t, nt_Time u);
