@@ -103,14 +103,14 @@ typedef struct {
 	char name[3]; // abbreviated name, "CET"
 	int  offset;  // seconds east of UTC
 	bool isDST;   // is this zone Daylight Savings Time?
-} time__zone;
+} nt__zone;
 
 // A zoneTrans represents a single time zone transition.
 typedef struct {
 	int64_t when;       // transition time, in seconds since 1970 GMT
 	uint8_t index;      // the index of the zone that goes into effect at that time
 	bool  isstd, isutc; // ignored - no idea what these mean
-} time__zoneTrans;
+} nt__zoneTrans;
 
 // A Location maps time instants to the zone in use at that time.
 // Typically, the Location represents the collection of time offsets
@@ -122,8 +122,8 @@ typedef struct {
 // boundaries.
 typedef struct {
 	char *name;
-	time__zone *zone;    // []zone
-	time__zoneTrans *tx; // []zoneTrans
+	nt__zone *zone;    // []zone
+	nt__zoneTrans *tx; // []zoneTrans
 
 	// The tzdata information can be followed by a string that describes
 	// how to handle DST transitions not recorded in zoneTrans.
@@ -143,8 +143,8 @@ typedef struct {
 	// to lookup.
 	int64_t cacheStart;
 	int64_t cacheEnd;
-	time__zone *cacheZone;
-} TimeLocation;
+	nt__zone *cacheZone;
+} nt_Location;
 
 // A Time represents an instant in time with nanosecond precision.
 //
@@ -207,112 +207,92 @@ typedef struct Time {
 	// that correspond to this Time.
 	// The nil location means UTC.
 	// All UTC times are represented with loc==nil, never loc==&utcLoc.
-	TimeLocation *loc;
-} Time;
+	nt_Location *loc;
+} nt_Time;
 
-extern TimeLocation *time_UTC;
-extern TimeLocation *time_Local;
+extern nt_Location *time_UTC;
+extern nt_Location *time_Local;
 
 // A Month specifies a month of the year (January = 1, ...).
 typedef enum {
-	JANUARY = 1,
-	FEBRUARY,
-	MARCH,
-	APRIL,
-	MAY,
-	JUNE,
-	JULY,
-	AUGUST,
-	SEPTEMBER,
-	OCTOBER,
-	NOVEMBER,
-	DECEMBER
-} TimeMonth;
+	nt_JANUARY = 1,
+	nt_FEBRUARY,
+	nt_MARCH,
+	nt_APRIL,
+	nt_MAY,
+	nt_JUNE,
+	nt_JULY,
+	nt_AUGUST,
+	nt_SEPTEMBER,
+	nt_OCTOBER,
+	nt_NOVEMBER,
+	nt_DECEMBER
+} nt_Month;
 
 // A Weekday specifies a day of the week (Sunday = 0, ...).
 typedef enum {
-	SUNDAY = 0,
-	MONDAY,
-	TUESDAY,
-	WEDNESDAY,
-	THURSDAY,
-	FRIDAY,
-	SATURDAY,
-} TimeWeekday;
+	nt_SUNDAY = 0,
+	nt_MONDAY,
+	nt_TUESDAY,
+	nt_WEDNESDAY,
+	nt_THURSDAY,
+	nt_FRIDAY,
+	nt_SATURDAY,
+} nt_Weekday;
 
 typedef struct {
     int year;
-    TimeMonth month;
+    nt_Month month;
     int day;
-} TimeDate;
+} nt_Date;
 
 typedef struct {
     int year, week;
-} TimeWeek;
+} nt_Week;
 
 
 typedef struct {
     int hour, min, sec;
-} TimeClock;
+} nt_Clock;
 
 // A Duration represents the elapsed time between two instants
 // as an int64 nanosecond count. The representation limits the
 // largest representable duration to approximately 290 years.
-typedef int64_t TimeDuration;
+typedef int64_t nt_Duration;
 
-// Common durations. There is no definition for units of Day or larger
-// to avoid confusion across daylight savings time zone transitions.
-//
-// To count the number of units in a Duration, divide:
-//
-//	second := time.Second
-//	fmt.Print(int64(second/time.Millisecond)) // prints 1000
-//
-// To convert an integer number of units to a Duration, multiply:
-//
-//	seconds := 10
-//	fmt.Print(time.Duration(seconds)*time.Second) // prints 10s
 
-static const TimeDuration NANOSECOND  = 1;
-static const TimeDuration MICROSECOND = 1000 * NANOSECOND;
-static const TimeDuration MILLISECOND = 1000 * MICROSECOND;
-static const TimeDuration SECOND      = 1000 * MILLISECOND;
-static const TimeDuration MINUTE      = 60 * SECOND;
-static const TimeDuration HOUR        = 60 * MINUTE;
+bool nt_TimeAfter(nt_Time t, nt_Time u);
+bool nt_Before(nt_Time t, nt_Time u);
+int nt_TimeCompare(nt_Time t, nt_Time u);
+bool nt_TimeEqual(nt_Time t, nt_Time u);
 
-bool time_After(Time t, Time u);
-bool time_Before(Time t, Time u);
-int time_Compare(Time t, Time u);
-bool time_Equal(Time t, Time u);
+char *nt_TimeMonthString(nt_Month m);
+char *nt_TimeWeekdayString(nt_Weekday d);
 
-char *time_MonthString(TimeMonth m);
-char *time_WeekdayString(TimeWeekday d);
-
-bool time_IsZero(Time t);
-TimeDate time_Date(Time t);
-int time_Year(Time t);
-TimeMonth time_Month(Time t);
-int time_Day(Time t);
-TimeWeekday time_Weekday(Time t);
-TimeWeek time_ISOWeek(Time t);
-TimeClock  time_Clock(Time t);
-int time_Hour(Time t);
-int time_Minute(Time t);
-int time_Second(Time t);
-int time_Nanosecond(Time t);
-int time_YearDay(Time t);
-char *time_DurationString(TimeDuration d);
-int64_t time_DurationNanoseconds(TimeDuration d);
-int64_t time_DurationMicroseconds(TimeDuration d);
-int64_t time_DurationMilliseconds(TimeDuration d);
-double time_DurationSeconds(TimeDuration d);
-double time_DurationMinutes(TimeDuration d);
-double time_DurationHours(TimeDuration d);
-TimeDuration  time_DurationTruncate(TimeDuration d, TimeDuration m);
-TimeDuration time_DurationRound(TimeDuration d, TimeDuration m);
-TimeDuration time_DurationAbs(TimeDuration d);
-Time time_Add(Time t , TimeDuration d);
-TimeDuration time_Sub(Time t, Time u);
+bool nt_TimeIsZero(nt_Time t);
+nt_Date nt_TimeDate(nt_Time t);
+int nt_TimeYear(nt_Time t);
+nt_Month nt_TimeMonth(nt_Time t);
+int nt_TimeDay(nt_Time t);
+nt_Weekday nt_TimeWeekday(nt_Time t);
+nt_Week nt_TimeISOWeek(nt_Time t);
+nt_Clock  nt_TimeClock(nt_Time t);
+int nt_TimeHour(nt_Time t);
+int nt_TimeMinute(nt_Time t);
+int nt_TimeSecond(nt_Time t);
+int nt_TimeNanosecond(nt_Time t);
+int nt_TimeYearDay(nt_Time t);
+char *nt_DurationString(nt_Duration d);
+int64_t nt_DurationNanoseconds(nt_Duration d);
+int64_t nt_DurationMicroseconds(nt_Duration d);
+int64_t nt_DurationMilliseconds(nt_Duration d);
+double nt_DurationSeconds(nt_Duration d);
+double nt_DurationMinutes(nt_Duration d);
+double nt_DurationHours(nt_Duration d);
+nt_Duration  nt_DurationTruncate(nt_Duration d, nt_Duration m);
+nt_Duration nt_DurationRound(nt_Duration d, nt_Duration m);
+nt_Duration nt_DurationAbs(nt_Duration d);
+nt_Time nt_TimeAdd(nt_Time t , nt_Duration d);
+nt_Duration nt_TimeSub(nt_Time t, nt_Time u);
 
 #endif
-

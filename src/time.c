@@ -5,14 +5,14 @@
 // utcLoc is separate so that get can refer to &utcLoc
 // and ensure that it never returns a nil *Location,
 // even if a badly behaved client has changed UTC.
-static TimeLocation time__utcLoc = (TimeLocation){.name = "UTC"};
+static nt_Location nt__utcLoc = (nt_Location){.name = "UTC"};
 
 // UTC represents Universal Coordinated Time (UTC).
-TimeLocation *time_UTC = &time__utcLoc;
+nt_Location *nt_UTC = &nt__utcLoc;
                                                //
 // localLoc is separate so that initLocal can initialize
 // it even if a client has changed Local.
-static TimeLocation time__localLoc;
+static nt_Location nt__localLoc;
 
 // Local represents the system's local time zone.
 // On Unix systems, Local consults the TZ environment
@@ -20,16 +20,16 @@ static TimeLocation time__localLoc;
 // use the system default /etc/localtime.
 // TZ="" means use UTC.
 // TZ="foo" means use file foo in the system timezone directory.
-TimeLocation *time_Local = &time__localLoc;
+nt_Location *nt_Local = &nt__localLoc;
 
 
-static const int64_t secondsPerMinute = 60;
-static const int64_t secondsPerHour   = 60 * secondsPerMinute;
-static const int64_t secondsPerDay    = 24 * secondsPerHour;
-static const int64_t secondsPerWeek   = 7 * secondsPerDay;
-static const int64_t daysPer400Years  = 365*400 + 97;
-static const int64_t daysPer100Years  = 365*100 + 24;
-static const int64_t daysPer4Years    = 365*4 + 1;
+const int64_t secondsPerMinute = 60;
+const int64_t secondsPerHour   = 60 * secondsPerMinute;
+const int64_t secondsPerDay    = 24 * secondsPerHour;
+const int64_t secondsPerWeek   = 7 * secondsPerDay;
+const int64_t daysPer400Years  = 365*400 + 97;
+const int64_t daysPer100Years  = 365*100 + 24;
+const int64_t daysPer4Years    = 365*4 + 1;
 
 // Computations on time.
 //
@@ -186,7 +186,7 @@ static const char *longMonthNames[] = {
 };
 
 // Load local timezone data??
-void time_init(void)
+void nt_nanotime_init(void)
 {
 }
 
@@ -200,13 +200,13 @@ void time_init(void)
 // to make them cheaper to call.
 
 // nsec returns the time's nanoseconds.
-int32_t time_nsec(Time *t)
+int32_t nt_Time_nsec(nt_Time *t)
 {
 	return t->wall & nsecMask;
 }
 
 // sec returns the time's seconds since Jan 1 year 1.
-int64_t time_sec(Time *t)
+int64_t nt_Time_sec(nt_Time *t)
 {
 	if ((t->wall&hasMonotonic) != 0) {
 		return wallToInternal + (t->wall<<1>>(nsecShift+1));
@@ -215,23 +215,23 @@ int64_t time_sec(Time *t)
 }
 
 // unixSec returns the time's seconds since Jan 1 1970 (Unix time).
-int64_t time_unixSec(Time *t)
+int64_t nt_Time_unixSec(nt_Time *t)
 {
-    return time_sec(t) + internalToUnix;
+    return nt_Time_sec(t) + internalToUnix;
 }
 
 
 // stripMono strips the monotonic clock reading in t.
-void time_stripMono(Time *t)
+void nt_Time_stripMono(nt_Time *t)
 {
 	if ((t->wall&hasMonotonic) != 0) {
-		t->ext = time_sec(t);
+		t->ext = nt_Time_sec(t);
 		t->wall &= nsecMask;
 	}
 }
 
 // addSec adds d seconds to the time.
-void time_addSec(Time *t, int64_t d)
+void nt_Time_addSec(nt_Time *t, int64_t d)
 {
 	if ((t->wall&hasMonotonic) != 0) {
 		int64_t sec = t->wall << 1 >> (nsecShift + 1);
@@ -242,7 +242,7 @@ void time_addSec(Time *t, int64_t d)
 		}
 		// Wall second now out of range for packed field.
 		// Move to ext.
-		time_stripMono(t);
+		nt_Time_stripMono(t);
 	}
 
 	// Check if the sum of t.ext and d overflows and handle it properly.
@@ -257,12 +257,12 @@ void time_addSec(Time *t, int64_t d)
 }
 
 // setLoc sets the location associated with the time.
-void time_setLoc(Time *t, TimeLocation *loc)
+void nt_Time_setLoc(nt_Time *t, nt_Location *loc)
 {
-	if (strcmp(loc->name, time__utcLoc.name) == 0) {
+	if (strcmp(loc->name, nt__utcLoc.name) == 0) {
 		loc = NULL;
 	}
-	time_stripMono(t);
+	nt_Time_stripMono(t);
 	t->loc = loc;
 }
 
@@ -270,7 +270,7 @@ void time_setLoc(Time *t, TimeLocation *loc)
 // If t cannot hold a monotonic clock reading,
 // because its wall time is too large,
 // setMono is a no-op.
-void time_setMono(Time *t, int64_t m)
+void nt_Time_setMono(nt_Time *t, int64_t m)
 {
 	if ((t->wall&hasMonotonic) == 0) {
 		int64_t sec = t->ext;
@@ -287,7 +287,7 @@ void time_setMono(Time *t, int64_t m)
 // This function is used only for testing,
 // so it's OK that technically 0 is a valid
 // monotonic clock reading as well.
-int64_t time_mono(Time *t)
+int64_t nt_Time_mono(nt_Time *t)
 {
 	if ((t->wall&hasMonotonic) == 0) {
 		return 0;
@@ -296,41 +296,41 @@ int64_t time_mono(Time *t)
 }
 
 // After reports whether the time instant t is after u.
-bool time_After(Time t, Time u)
+bool nt_TimeAfter(nt_Time t, nt_Time u)
 {
 	if ((t.wall&u.wall&hasMonotonic) != 0) {
 		return t.ext > u.ext;
 	}
-	int64_t ts = time_sec(&t);
-	int64_t us = time_sec(&u);
-	return ts > us || ts == us && time_nsec(&t) > time_nsec(&u);
+	int64_t ts = nt_Time_sec(&t);
+	int64_t us = nt_Time_sec(&u);
+	return ts > us || ts == us && nt_Time_nsec(&t) > nt_Time_nsec(&u);
 }
 
 // Before reports whether the time instant t is before u.
-bool time_Before(Time t, Time u)
+bool nt_TimeBefore(nt_Time t, nt_Time u)
 {
 	if ((t.wall&u.wall&hasMonotonic) != 0) {
 		return t.ext < u.ext;
 	}
-	int64_t ts = time_sec(&t);
-	int64_t us = time_sec(&u);
-	return ts < us || ts == us && time_nsec(&t) < time_nsec(&u);
+	int64_t ts = nt_Time_sec(&t);
+	int64_t us = nt_Time_sec(&u);
+	return ts < us || ts == us && nt_Time_nsec(&t) < nt_Time_nsec(&u);
 }
 
 // Compare compares the time instant t with u. If t is before u, it returns -1;
 // if t is after u, it returns +1; if they're the same, it returns 0.
-int time_Compare(Time t, Time u)
+int time_Compare(nt_Time t, nt_Time u)
 {
 	int64_t tc, uc;
 	if ((t.wall&u.wall&hasMonotonic) != 0) {
 		tc = t.ext;
         uc = u.ext;
 	} else {
-        tc = time_sec(&t);
-        uc = time_sec(&u);
+        tc = nt_Time_sec(&t);
+        uc = nt_Time_sec(&u);
 		if (tc == uc) {
-			tc = time_nsec(&t);
-            uc = time_nsec(&u);
+			tc = nt_Time_nsec(&t);
+            uc = nt_Time_nsec(&u);
 		}
 	}
 	if (tc < uc)
@@ -345,17 +345,17 @@ int time_Compare(Time t, Time u)
 // For example, 6:00 +0200 and 4:00 UTC are Equal.
 // See the documentation on the Time type for the pitfalls of using == with
 // Time values; most code should use Equal instead.
-bool time_Equal(Time t, Time u)
+bool nt_TimeEqual(nt_Time t, nt_Time u)
 {
 	if ((t.wall&u.wall&hasMonotonic) != 0) {
 		return t.ext == u.ext;
 	}
-	return time_sec(&t) == time_sec(&u) && time_nsec(&t) == time_nsec(&u);
+	return nt_Time_sec(&t) == nt_Time_sec(&u) && nt_Time_nsec(&t) == nt_Time_nsec(&u);
 }
 
 // fmtInt formats v into the tail of buf.
 // It returns the index where the output begins.
-int time_fmtInt(char buf[], size_t bufLen, uint64_t v)
+int nt_fmtInt(char buf[], size_t bufLen, uint64_t v)
 {
 	size_t w = bufLen;
 	if (v == 0) {
@@ -373,16 +373,16 @@ int time_fmtInt(char buf[], size_t bufLen, uint64_t v)
 
 // String returns the English name of the month ("January", "February", ...).
 // Caller should free the returned string.
-char *time_MonthString(TimeMonth m) {
+char *nt_MonthString(nt_Month m) {
     char *str;
-	if (JANUARY <= m && m <= DECEMBER) {
+	if (nt_JANUARY <= m && m <= nt_DECEMBER) {
         str = malloc(strlen(longMonthNames[m-1]) + 1);
         strcpy(str, longMonthNames[m-1]);
 		return str;
 	}
     const size_t bufLen = 20;
     char buf[bufLen];
-	int n = time_fmtInt(buf, bufLen, m);
+	int n = nt_fmtInt(buf, bufLen, m);
 
     str = malloc(8 + bufLen + 1 + 1);
     str[0] = '\0';
@@ -394,17 +394,17 @@ char *time_MonthString(TimeMonth m) {
 
 // String returns the English name of the day ("Sunday", "Monday", ...).
 // Caller should free the returned string.
-char *time_WeekdayString(TimeWeekday d)
+char *nt_WeekdayString(nt_Weekday d)
 {
     char *str;
-	if (SUNDAY <= d && d <= SATURDAY) {
+	if (nt_SUNDAY <= d && d <= nt_SATURDAY) {
         str = malloc(strlen(longDayNames[d]) + 1);
         strcpy(str, longDayNames[d]);
 		return str;
 	}
     const size_t bufLen = 20;
     char buf[bufLen];
-	int n = time_fmtInt(buf, bufLen, d);
+	int n = nt_fmtInt(buf, bufLen, d);
 
     str = malloc(10 + bufLen + 1 + 1);
     str[0] = '\0';
@@ -416,23 +416,23 @@ char *time_WeekdayString(TimeWeekday d)
 
 // IsZero reports whether t represents the zero time instant,
 // January 1, year 1, 00:00:00 UTC.
-bool time_IsZero(Time t)
+bool nt_TimeIsZero(nt_Time t)
 {
-	return time_sec(&t) == 0 && time_nsec(&t) == 0;
+	return nt_Time_sec(&t) == 0 && nt_Time_nsec(&t) == 0;
 }
 
 // abs returns the time t as an absolute time, adjusted by the zone offset.
 // It is called when computing a presentation property like Month or Hour.
 // TODO: Unfinished, needs work.
-uint64_t time_abs(Time t)
+uint64_t nt_Time_abs(nt_Time t)
 {
-	TimeLocation *l = t.loc;
+	nt_Location *l = t.loc;
 	// Avoid function calls when possible.
-	if (l == NULL || l == &time__localLoc) {
+	if (l == NULL || l == &nt__localLoc) {
 		/* l = l.get(); */
 	}
-	int64_t sec = time_unixSec(&t);
-	if (l != &time__utcLoc) {
+	int64_t sec = nt_Time_unixSec(&t);
+	if (l != &nt__utcLoc) {
 		if (l->cacheZone != NULL && l->cacheStart <= sec && sec < l->cacheEnd) {
 			sec += l->cacheZone->offset;
 		} else {
@@ -443,22 +443,22 @@ uint64_t time_abs(Time t)
 	return sec + (unixToInternal + internalToAbsolute);
 }
 
-struct time_locabs{
+struct nt_Timelocabs{
     char *name;
     int offset;
     uint64_t abs;
 };
 // locabs is a combination of the Zone and abs methods,
 // extracting both return values from a single zone lookup.
- struct time_locabs time_locabs(Time t) {
-    struct time_locabs ret = {0};
-	TimeLocation *l = t.loc;
-	if (l == NULL || l == &time__localLoc) {
+ struct nt_Timelocabs nt_Time_locabs(nt_Time t) {
+    struct nt_Timelocabs ret = {0};
+	nt_Location *l = t.loc;
+	if (l == NULL || l == &nt__localLoc) {
 		/* l = l.get(); */
 	}
 	// Avoid function call if we hit the local time cache.
-	int64_t sec = time_unixSec(&t);
-	if (l != &time__utcLoc) {
+	int64_t sec = nt_Time_unixSec(&t);
+	if (l != &nt__utcLoc) {
 		if (l->cacheZone != NULL && l->cacheStart <= sec && sec < l->cacheEnd) {
 			ret.name = l->cacheZone->name;
 			ret.offset = l->cacheZone->offset;
@@ -494,17 +494,17 @@ int32_t daysBefore[] = {
 	31 + 28 + 31 + 30 + 31 + 30 + 31 + 31 + 30 + 31 + 30 + 31,
 };
 
-struct time_date{
+struct nt_date{
     int year;
-    TimeMonth month;
+    nt_Month month;
     int day;
     int yday;
 };
  /* (year int, month Month, day int, yday int) */ 
 // absDate is like date but operates on an absolute time.
-struct time_date time_absDate(uint64_t abs , bool full)
+struct nt_date nt_Time_absDate(uint64_t abs , bool full)
 {
-    struct time_date ret = {0};
+    struct nt_date ret = {0};
 	// Split into time and day.
 	uint64_t d = abs / secondsPerDay;
 
@@ -553,7 +553,7 @@ struct time_date time_absDate(uint64_t abs , bool full)
 			ret.day--;
         } else if (ret.day == 31+29-1) {
 			// Leap day.
-			ret.month = FEBRUARY;
+			ret.month = nt_FEBRUARY;
 			ret.day = 29;
 			return ret;
 		}
@@ -578,16 +578,16 @@ struct time_date time_absDate(uint64_t abs , bool full)
 
 // date computes the year, day of year, and when full=true,
 // the month and day in which t occurs.
-struct time_date time_date(Time t, bool full)
+struct nt_date nt_Time_date(nt_Time t, bool full)
 {
-	return time_absDate(time_abs(t), full);
+	return nt_Time_absDate(nt_Time_abs(t), full);
 }
 
 // Date returns the year, month, and day in which t occurs.
-TimeDate time_Date(Time t)
+nt_Date nt_TimeDate(nt_Time t)
 {
-	struct time_date d = time_date(t, true);
-    return (TimeDate) {
+	struct nt_date d = nt_Time_date(t, true);
+    return (nt_Date) {
         .year = d.year,
         .month = d.month,
         .day = d.day,
@@ -595,45 +595,45 @@ TimeDate time_Date(Time t)
 }
 
 // Year returns the year in which t occurs.
-int time_Year(Time t)
+int nt_TimeYear(nt_Time t)
 {
-	struct time_date d = time_date(t, false);
+	struct nt_date d = nt_Time_date(t, false);
     return d.year;
 }
 
 // Month returns the month of the year specified by t.
-TimeMonth time_Month(Time t)
+nt_Month nt_TimeMonth(nt_Time t)
 {
-	struct time_date d = time_date(t, true);
+	struct nt_date d = nt_Time_date(t, true);
 	return d.month;
 }
 
 // Day returns the day of the month specified by t.
-int time_Day(Time t)
+int nt_TimeDay(nt_Time t)
 {
-	struct time_date d = time_date(t, true);
+	struct nt_date d = nt_Time_date(t, true);
     return d.day;
 }
 
 // absWeekday is like Weekday but operates on an absolute time.
-TimeWeekday time_absWeekday(uint64_t abs)
+nt_Weekday nt_Time_absWeekday(uint64_t abs)
 {
 	// January 1 of the absolute year, like January 1 of 2001, was a Monday.
-	uint64_t sec = (abs + MONDAY*secondsPerDay) % secondsPerWeek;
+	uint64_t sec = (abs + nt_MONDAY*secondsPerDay) % secondsPerWeek;
 	return sec / secondsPerDay;
 }
 
 // Weekday returns the day of the week specified by t.
-TimeWeekday time_Weekday(Time t)
+nt_Weekday nt_TimeWeekday(nt_Time t)
 {
-	return time_absWeekday(time_abs(t));
+	return nt_Time_absWeekday(nt_Time_abs(t));
 }
 
 // ISOWeek returns the ISO 8601 year and week number in which t occurs.
 // Week ranges from 1 to 53. Jan 01 to Jan 03 of year n might belong to
 // week 52 or 53 of year n-1, and Dec 29 to Dec 31 might belong to week 1
 // of year n+1.
-TimeWeek time_ISOWeek(Time t)
+nt_Week nt_TimeISOWeek(nt_Time t)
 {
 	// According to the rule that the first calendar week of a calendar year is
 	// the week including the first Thursday of that year, and that the last one is
@@ -645,25 +645,25 @@ TimeWeek time_ISOWeek(Time t)
 	// 1      2       3         4        5      6        7
 	// +3     +2      +1        0        -1     -2       -3
 	// the offset to Thursday
-	uint64_t abs = time_abs(t);
-	TimeWeekday d = THURSDAY - time_absWeekday(abs);
+	uint64_t abs = nt_Time_abs(t);
+	nt_Weekday d = nt_THURSDAY - nt_Time_absWeekday(abs);
 	// handle Sunday
 	if (d == 4) {
 		d = -3;
 	}
 	// find the Thursday of the calendar week
 	abs += d * secondsPerDay;
-	struct time_date td = time_absDate(abs, false);
-    return (TimeWeek){
+	struct nt_date td = nt_Time_absDate(abs, false);
+    return (nt_Week){
         .year = td.year,
         .week = td.yday/7 + 1,
     };
 }
 
 // absClock is like clock but operates on an absolute time.
-TimeClock time_absClock(uint64_t abs)
+nt_Clock nt_Time_absClock(uint64_t abs)
 {
-    TimeClock ret = {0};
+    nt_Clock ret = {0};
 	ret.sec = abs % secondsPerDay;
 	ret.hour = ret.sec / secondsPerHour;
 	ret.sec -= ret.hour * secondsPerHour;
@@ -673,48 +673,68 @@ TimeClock time_absClock(uint64_t abs)
 }
 
 // Clock returns the hour, minute, and second within the day specified by t.
-TimeClock  time_Clock(Time t)
+nt_Clock  nt_TimeClock(nt_Time t)
 {
-	return time_absClock(time_abs(t));
+	return nt_Time_absClock(nt_Time_abs(t));
 }
 
 // Hour returns the hour within the day specified by t, in the range [0, 23].
-int time_Hour(Time t)
+int nt_TimeHour(nt_Time t)
 {
-	return (time_abs(t)%secondsPerDay) / secondsPerHour;
+	return (nt_Time_abs(t)%secondsPerDay) / secondsPerHour;
 }
 
 // Minute returns the minute offset within the hour specified by t, in the range [0, 59].
-int time_Minute(Time t)
+int nt_TimeMinute(nt_Time t)
 {
-	return (time_abs(t)%secondsPerHour) / secondsPerMinute;
+	return (nt_Time_abs(t)%secondsPerHour) / secondsPerMinute;
 }
 
 // Second returns the second offset within the minute specified by t, in the range [0, 59].
-int time_Second(Time t)
+int nt_TimeSecond(nt_Time t)
 {
-	return (time_abs(t) % secondsPerMinute);
+	return (nt_Time_abs(t) % secondsPerMinute);
 }
 
 // Nanosecond returns the nanosecond offset within the second specified by t,
 // in the range [0, 999999999].
-int time_Nanosecond(Time t)
+int nt_TimeNanosecond(nt_Time t)
 {
-	return time_nsec(&t);
+	return nt_Time_nsec(&t);
 }
 
 // YearDay returns the day of the year specified by t, in the range [1,365] for non-leap years,
 // and [1,366] in leap years.
-int time_YearDay(Time t)
+int nt_TimeYearDay(nt_Time t)
 {
-    struct time_date td = time_date(t, false);
+    struct nt_date td = nt_Time_date(t, false);
 	return td.yday + 1;
 }
 
-static const TimeDuration minDuration = -((uint64_t)1 << 63);
-static const TimeDuration maxDuration = ((uint64_t)1<<63) - 1;
+// Common durations. There is no definition for units of Day or larger
+// to avoid confusion across daylight savings time zone transitions.
+//
+// To count the number of units in a Duration, divide:
+//
+//	second := time.Second
+//	fmt.Print(int64(second/time.Millisecond)) // prints 1000
+//
+// To convert an integer number of units to a Duration, multiply:
+//
+//	seconds := 10
+//	fmt.Print(time.Duration(seconds)*time.Second) // prints 10s
 
-struct time_fmtFrac {
+const nt_Duration nt_NANOSECOND  = 1;
+const nt_Duration nt_MICROSECOND = 1000 * nt_NANOSECOND;
+const nt_Duration nt_MILLISECOND = 1000 * nt_MICROSECOND;
+const nt_Duration nt_SECOND      = 1000 * nt_MILLISECOND;
+const nt_Duration nt_MINUTE      = 60 * nt_SECOND;
+const nt_Duration nt_HOUR        = 60 * nt_MINUTE;
+
+const nt_Duration minDuration = -((uint64_t)1 << 63);
+const nt_Duration maxDuration = ((uint64_t)1<<63) - 1;
+
+struct nt_fmtFrac {
     int nw;
     uint64_t nv;
 };
@@ -722,7 +742,7 @@ struct time_fmtFrac {
 // tail of buf, omitting trailing zeros. It omits the decimal
 // point too when the fraction is 0. It returns the index where the
 // output bytes begin and the value v/10**prec.
-struct time_fmtFrac time_fmtFrac(char buf[], size_t bufLen, uint64_t v, int prec)
+struct nt_fmtFrac nt_fmtFrac(char buf[], size_t bufLen, uint64_t v, int prec)
 {
 	// Omit trailing zeros up to and including decimal point.
 	size_t w = bufLen;
@@ -740,12 +760,12 @@ struct time_fmtFrac time_fmtFrac(char buf[], size_t bufLen, uint64_t v, int prec
 		w--;
 		buf[w] = '.';
 	}
-	return (struct time_fmtFrac){ .nw = w, .nv = v };
+	return (struct nt_fmtFrac){ .nw = w, .nv = v };
 }
 
 // format formats the representation of d into the end of buf and
 // returns the offset of the first character.
-int time_durationFormat(TimeDuration d, char buf[32])
+int nt_Duration_format(nt_Duration d, char buf[32])
 {
 	// Largest time is 2540400h10m10.000000000s
     size_t w = 32;
@@ -756,7 +776,7 @@ int time_durationFormat(TimeDuration d, char buf[32])
 		u = -u;
 	}
 
-	if (u < SECOND) {
+	if (u < nt_SECOND) {
 		// Special case: if duration is smaller than a second,
 		// use smaller units, like 1.2ms
 		int prec = 0;
@@ -766,11 +786,11 @@ int time_durationFormat(TimeDuration d, char buf[32])
 		if (u == 0) {
 			buf[w] = '0';
 			return w;
-        } else if (u < MICROSECOND) {
+        } else if (u < nt_MICROSECOND) {
 			// print nanoseconds
 			prec = 0;
 			buf[w] = 'n';
-        } else if (u < MILLISECOND) {
+        } else if (u < nt_MILLISECOND) {
 			// print microseconds
 			prec = 3;
 			// U+00B5 'µ' micro sign == 0xC2 0xB5
@@ -781,27 +801,27 @@ int time_durationFormat(TimeDuration d, char buf[32])
 			prec = 6;
 			buf[w] = 'm';
 		}
-        struct time_fmtFrac ff = time_fmtFrac(buf, w, u, prec);
+        struct nt_fmtFrac ff = nt_fmtFrac(buf, w, u, prec);
         w = ff.nw;
         u = ff.nv;
-		w = time_fmtInt(buf, w, u);
+		w = nt_fmtInt(buf, w, u);
 	} else {
 		w--;
 		buf[w] = 's';
 
-        struct time_fmtFrac ff = time_fmtFrac(buf, w, u, 9);
+        struct nt_fmtFrac ff = nt_fmtFrac(buf, w, u, 9);
         w = ff.nw;
         u = ff.nv;
 
 		// u is now integer seconds
-		w = time_fmtInt(buf, w, u%60);
+		w = nt_fmtInt(buf, w, u%60);
 		u /= 60;
 
 		// u is now integer minutes
 		if (u > 0) {
 			w--;
 			buf[w] = 'm';
-            w = time_fmtInt(buf, w, u%60);
+            w = nt_fmtInt(buf, w, u%60);
 			u /= 60;
 
 			// u is now integer hours
@@ -809,7 +829,7 @@ int time_durationFormat(TimeDuration d, char buf[32])
 			if (u > 0) {
 				w--;
 				buf[w] = 'h';
-                w = time_fmtInt(buf, w, u);
+                w = nt_fmtInt(buf, w, u);
 			}
 		}
 	}
@@ -826,25 +846,25 @@ int time_durationFormat(TimeDuration d, char buf[32])
 // Leading zero units are omitted. As a special case, durations less than one
 // second format use a smaller unit (milli-, micro-, or nanoseconds) to ensure
 // that the leading digit is non-zero. The zero duration formats as 0s.
-char *time_DurationString(TimeDuration d)
+char *nt_DurationString(nt_Duration d)
 {
 	// This is inlinable to take advantage of "function outlining".
 	// Thus, the caller can decide whether a string must be heap allocated.
 	char arr[32];
-	int n = time_durationFormat(d, arr);
+	int n = nt_Duration_format(d, arr);
     char *str = malloc(32 - n + 1);
     strncpy(str, &arr[n], 32-n);
     return str;
 }
 
 // Nanoseconds returns the duration as an integer nanosecond count.
-int64_t time_DurationNanoseconds(TimeDuration d) { return d; }
+int64_t nt_DurationNanoseconds(nt_Duration d) { return d; }
 
 // Microseconds returns the duration as an integer microsecond count.
-int64_t time_DurationMicroseconds(TimeDuration d) { return d / 1e3; }
+int64_t nt_DurationMicroseconds(nt_Duration d) { return d / 1e3; }
 
 // Milliseconds returns the duration as an integer millisecond count.
-int64_t time_DurationMilliseconds(TimeDuration d) { return d / 1e6; }
+int64_t nt_DurationMilliseconds(nt_Duration d) { return d / 1e6; }
 
 
 // These methods return float64 because the dominant
@@ -857,32 +877,32 @@ int64_t time_DurationMilliseconds(TimeDuration d) { return d / 1e6; }
 // differently.
 
 // Seconds returns the duration as a floating point number of seconds.
-double time_DurationSeconds(TimeDuration d)
+double nt_DurationSeconds(nt_Duration d)
 {
-	int64_t sec = d / SECOND;
-	int64_t nsec = d % SECOND;
+	int64_t sec = d / nt_SECOND;
+	int64_t nsec = d % nt_SECOND;
 	return (double)sec + (double)nsec/1e9;
 }
 
 // Minutes returns the duration as a floating point number of minutes.
-double time_DurationMinutes(TimeDuration d)
+double nt_DurationMinutes(nt_Duration d)
 {
-	int64_t min = d / MINUTE;
-	int64_t nsec = d % MINUTE;
+	int64_t min = d / nt_MINUTE;
+	int64_t nsec = d % nt_MINUTE;
 	return (double)min + (double)nsec/(60*1e9);
 }
 
 // Hours returns the duration as a floating point number of hours.
-double time_DurationHours(TimeDuration d)
+double nt_DurationHours(nt_Duration d)
 {
-	int64_t hour = d / HOUR;
-	int64_t nsec = d % HOUR;
+	int64_t hour = d / nt_HOUR;
+	int64_t nsec = d % nt_HOUR;
 	return (double)hour + (double)nsec/(60*60*1e9);
 }
 
 // Truncate returns the result of rounding d toward zero to a multiple of m.
 // If m <= 0, Truncate returns d unchanged.
-TimeDuration  time_DurationTruncate(TimeDuration d, TimeDuration m) {
+nt_Duration  nt_DurationTruncate(nt_Duration d, nt_Duration m) {
 	if (m <= 0) {
 		return d;
 	}
@@ -891,7 +911,7 @@ TimeDuration  time_DurationTruncate(TimeDuration d, TimeDuration m) {
 
 // lessThanHalf reports whether x+x < y but avoids overflow,
 // assuming x and y are both positive (Duration is signed).
-bool time_lessThanHalf(TimeDuration x, TimeDuration y ) 
+bool nt_lessThanHalf(nt_Duration x, nt_Duration y ) 
 {
 	return x+x < y;
 }
@@ -902,7 +922,7 @@ bool time_lessThanHalf(TimeDuration x, TimeDuration y )
 // value that can be stored in a Duration,
 // Round returns the maximum (or minimum) duration.
 // If m <= 0, Round returns d unchanged.
-TimeDuration time_DurationRound(TimeDuration d, TimeDuration m)
+nt_Duration nt_DurationRound(nt_Duration d, nt_Duration m)
 {
 	if (m <= 0) {
 		return d;
@@ -910,7 +930,7 @@ TimeDuration time_DurationRound(TimeDuration d, TimeDuration m)
 	int64_t r = d % m;
 	if (d < 0) {
 		r = -r;
-		if (time_lessThanHalf(r, m)) {
+		if (nt_lessThanHalf(r, m)) {
 			return d + r;
 		}
         int64_t d1 = d - m + r;
@@ -919,7 +939,7 @@ TimeDuration time_DurationRound(TimeDuration d, TimeDuration m)
 		}
 		return minDuration; // overflow
 	}
-	if (time_lessThanHalf(r, m)) {
+	if (nt_lessThanHalf(r, m)) {
 		return d - r;
 	}
 	int64_t d1 = d + m - r;
@@ -931,7 +951,7 @@ TimeDuration time_DurationRound(TimeDuration d, TimeDuration m)
 
 // Abs returns the absolute value of d.
 // As a special case, math.MinInt64 is converted to math.MaxInt64.
-TimeDuration time_DurationAbs(TimeDuration d) 
+nt_Duration nt_DurationAbs(nt_Duration d) 
 {
     if (d >= 0)
         return d;
@@ -942,10 +962,10 @@ TimeDuration time_DurationAbs(TimeDuration d)
 }
 
 // Add returns the time t+d.
-Time time_Add(Time t , TimeDuration d) 
+nt_Time nt_TimeAdd(nt_Time t , nt_Duration d) 
 {
 	int64_t dsec = d / 1e9;
-	int32_t nsec = time_nsec(&t) + d%(int32_t)1e9;
+	int32_t nsec = nt_Time_nsec(&t) + d%(int32_t)1e9;
 	if (nsec >= 1e9) {
 		dsec++;
 		nsec -= 1e9;
@@ -954,12 +974,12 @@ Time time_Add(Time t , TimeDuration d)
 		nsec += 1e9;
 	}
 	t.wall = t.wall & ~nsecMask | nsec; // update nsec
-	time_addSec(&t, dsec);
+	nt_Time_addSec(&t, dsec);
 	if ((t.wall&hasMonotonic) != 0) {
 		int64_t te = t.ext + d;
 		if (d < 0 && te > t.ext || d > 0 && te < t.ext) {
 			// Monotonic clock reading now out of range; degrade to wall-only.
-			time_stripMono(&t);
+			nt_Time_stripMono(&t);
 		} else {
 			t.ext = te;
 		}
@@ -967,9 +987,9 @@ Time time_Add(Time t , TimeDuration d)
 	return t;
 }
 
-TimeDuration time_subMono(int64_t t, int64_t u)
+nt_Duration nt_Time_subMono(int64_t t, int64_t u)
 {
-	TimeDuration d = t - u;
+	nt_Duration d = t - u;
 	if (d < 0 && t > u) {
 		return maxDuration; // t - u is positive out of range
 	}
@@ -983,16 +1003,16 @@ TimeDuration time_subMono(int64_t t, int64_t u)
 // value that can be stored in a Duration, the maximum (or minimum) duration
 // will be returned.
 // To compute t-d for a duration d, use t.Add(-d).
-TimeDuration time_Sub(Time t, Time u)
+nt_Duration time_Sub(nt_Time t, nt_Time u)
 {
 	if ((t.wall&u.wall&hasMonotonic) != 0) {
-		return time_subMono(t.ext, u.ext);
+		return nt_Time_subMono(t.ext, u.ext);
 	}
-	TimeDuration d = (time_sec(&t)-time_sec(&u)) * SECOND + (time_nsec(&t)-time_nsec(&u));
+	nt_Duration d = (nt_Time_sec(&t)-nt_Time_sec(&u)) * nt_SECOND + (nt_Time_nsec(&t)-nt_Time_nsec(&u));
 	// Check for overflow or underflow.
-    if (time_Equal(time_Add(u, d), t))
+    if (nt_TimeEqual(nt_TimeAdd(u, d), t))
         return d; // d is correct
-    else if (time_Before(t, u))
+    else if (nt_TimeBefore(t, u))
         return minDuration; // t - u is negative out of range
     else
         return maxDuration; // t - u is positive out of range
