@@ -837,3 +837,165 @@ char *time_DurationString(TimeDuration d)
     return str;
 }
 
+// Nanoseconds returns the duration as an integer nanosecond count.
+int64_t time_DurationNanoseconds(TimeDuration d) { return d; }
+
+// Microseconds returns the duration as an integer microsecond count.
+int64_t time_DurationMicroseconds(TimeDuration d) { return d / 1e3; }
+
+// Milliseconds returns the duration as an integer millisecond count.
+int64_t time_DurationMilliseconds(TimeDuration d) { return d / 1e6; }
+
+
+// These methods return float64 because the dominant
+// use case is for printing a floating point number like 1.5s, and
+// a truncation to integer would make them not useful in those cases.
+// Splitting the integer and fraction ourselves guarantees that
+// converting the returned float64 to an integer rounds the same
+// way that a pure integer conversion would have, even in cases
+// where, say, float64(d.Nanoseconds())/1e9 would have rounded
+// differently.
+
+// Seconds returns the duration as a floating point number of seconds.
+double time_DurationSeconds(TimeDuration d)
+{
+	int64_t sec = d / SECOND;
+	int64_t nsec = d % SECOND;
+	return (double)sec + (double)nsec/1e9;
+}
+
+// Minutes returns the duration as a floating point number of minutes.
+double time_DurationMinutes(TimeDuration d)
+{
+	int64_t min = d / MINUTE;
+	int64_t nsec = d % MINUTE;
+	return (double)min + (double)nsec/(60*1e9);
+}
+
+// Hours returns the duration as a floating point number of hours.
+double time_DurationHours(TimeDuration d)
+{
+	int64_t hour = d / HOUR;
+	int64_t nsec = d % HOUR;
+	return (double)hour + (double)nsec/(60*60*1e9);
+}
+
+// Truncate returns the result of rounding d toward zero to a multiple of m.
+// If m <= 0, Truncate returns d unchanged.
+TimeDuration  time_DurationTruncate(TimeDuration d, TimeDuration m) {
+	if (m <= 0) {
+		return d;
+	}
+	return d - d%m;
+}
+
+// lessThanHalf reports whether x+x < y but avoids overflow,
+// assuming x and y are both positive (Duration is signed).
+bool time_lessThanHalf(TimeDuration x, TimeDuration y ) 
+{
+	return x+x < y;
+}
+
+// Round returns the result of rounding d to the nearest multiple of m.
+// The rounding behavior for halfway values is to round away from zero.
+// If the result exceeds the maximum (or minimum)
+// value that can be stored in a Duration,
+// Round returns the maximum (or minimum) duration.
+// If m <= 0, Round returns d unchanged.
+TimeDuration time_DurationRound(TimeDuration d, TimeDuration m)
+{
+	if (m <= 0) {
+		return d;
+	}
+	int64_t r = d % m;
+	if (d < 0) {
+		r = -r;
+		if (time_lessThanHalf(r, m)) {
+			return d + r;
+		}
+        int64_t d1 = d - m + r;
+		if (d1 < d) {
+			return d1;
+		}
+		return minDuration; // overflow
+	}
+	if (time_lessThanHalf(r, m)) {
+		return d - r;
+	}
+	int64_t d1 = d + m - r;
+    if (d1 > d) {
+		return d1;
+	}
+	return maxDuration; // overflow
+}
+
+// Abs returns the absolute value of d.
+// As a special case, math.MinInt64 is converted to math.MaxInt64.
+TimeDuration time_DurationAbs(TimeDuration d) 
+{
+    if (d >= 0)
+        return d;
+    else if (d == minDuration)
+        return maxDuration;
+    else
+        return -d;
+}
+
+// Add returns the time t+d.
+Time time_Add(Time t , TimeDuration d) 
+{
+	int64_t dsec = d / 1e9;
+	int32_t nsec = time_nsec(&t) + d%(int32_t)1e9;
+	if (nsec >= 1e9) {
+		dsec++;
+		nsec -= 1e9;
+	} else if (nsec < 0) {
+		dsec--;
+		nsec += 1e9;
+	}
+	t.wall = t.wall & ~nsecMask | nsec; // update nsec
+	time_addSec(&t, dsec);
+	if ((t.wall&hasMonotonic) != 0) {
+		int64_t te = t.ext + d;
+		if (d < 0 && te > t.ext || d > 0 && te < t.ext) {
+			// Monotonic clock reading now out of range; degrade to wall-only.
+			time_stripMono(&t);
+		} else {
+			t.ext = te;
+		}
+	}
+	return t;
+}
+
+TimeDuration time_subMono(int64_t t, int64_t u)
+{
+	TimeDuration d = t - u;
+	if (d < 0 && t > u) {
+		return maxDuration; // t - u is positive out of range
+	}
+	if (d > 0 && t < u) {
+		return minDuration; // t - u is negative out of range
+	}
+	return d;
+}
+
+// Sub returns the duration t-u. If the result exceeds the maximum (or minimum)
+// value that can be stored in a Duration, the maximum (or minimum) duration
+// will be returned.
+// To compute t-d for a duration d, use t.Add(-d).
+TimeDuration time_Sub(Time t, Time u)
+{
+	if ((t.wall&u.wall&hasMonotonic) != 0) {
+		return time_subMono(t.ext, u.ext);
+	}
+	TimeDuration d = (time_sec(&t)-time_sec(&u)) * SECOND + (time_nsec(&t)-time_nsec(&u));
+	// Check for overflow or underflow.
+    if (time_Equal(time_Add(u, d), t))
+        return d; // d is correct
+    else if (time_Before(t, u))
+        return minDuration; // t - u is negative out of range
+    else
+        return maxDuration; // t - u is positive out of range
+}
+
+

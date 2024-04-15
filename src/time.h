@@ -301,6 +301,18 @@ int time_Minute(Time t);
 int time_Second(Time t);
 int time_Nanosecond(Time t);
 int time_YearDay(Time t);
+char *time_DurationString(TimeDuration d);
+int64_t time_DurationNanoseconds(TimeDuration d);
+int64_t time_DurationMicroseconds(TimeDuration d);
+int64_t time_DurationMilliseconds(TimeDuration d);
+double time_DurationSeconds(TimeDuration d);
+double time_DurationMinutes(TimeDuration d);
+double time_DurationHours(TimeDuration d);
+TimeDuration  time_DurationTruncate(TimeDuration d, TimeDuration m);
+TimeDuration time_DurationRound(TimeDuration d, TimeDuration m);
+TimeDuration time_DurationAbs(TimeDuration d);
+Time time_Add(Time t , TimeDuration d);
+TimeDuration time_Sub(Time t, Time u);
 
 #endif
 

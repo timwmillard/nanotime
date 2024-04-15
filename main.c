@@ -18,8 +18,10 @@ int main(void)
     printf("month = %s\n", month);
     free(month);
 
-    TimeDuration d = 4 * MICROSECOND;
-    printf("duration = %s\n", time_DurationString(d));
+    TimeDuration t1 = 60 * HOUR;
+    TimeDuration t2 = 2 * SECOND;
+    TimeDuration t3 = time_DurationTruncate(t1, t2);
+    printf("duration = %s\n", time_DurationString(t3));
 
     /* Time d = {0}; */
     /* TimeDate td = time_Date(d); */
