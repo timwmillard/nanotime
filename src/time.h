@@ -214,7 +214,7 @@ typedef struct Time {
 // utcLoc is separate so that get can refer to &utcLoc
 // and ensure that it never returns a nil *Location,
 // even if a badly behaved client has changed UTC.
-static TimeLocation time__utcLoc = (TimeLocation){.name = "UTC"};
+extern TimeLocation time__utcLoc = (TimeLocation){.name = "UTC"};
 
 // UTC represents Universal Coordinated Time (UTC).
 static TimeLocation *time_UTC = &time__utcLoc; // TODO: Consider how this work across transation units.
@@ -264,6 +264,15 @@ typedef struct {
     int day;
 } TimeDate;
 
+typedef struct {
+    int year, week;
+} TimeWeek;
+
+
+typedef struct {
+    int hour, min, sec;
+} TimeClock;
+
 bool time_After(Time t, Time u);
 bool time_Before(Time t, Time u);
 int time_Compare(Time t, Time u);
@@ -273,8 +282,13 @@ char *time_MonthString(TimeMonth m);
 char *time_WeekdayString(TimeWeekday d);
 
 bool time_IsZero(Time t);
-
 TimeDate time_Date(Time t);
+int time_Year(Time t);
+TimeMonth time_Month(Time t);
+int time_Day(Time t);
+TimeWeekday time_Weekday(Time t);
+TimeWeek ISOWeek(Time t);
+TimeClock  Clock(Time t);
 
 #endif
 

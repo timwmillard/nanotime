@@ -430,7 +430,7 @@ struct time_locabs{
 // locabs is a combination of the Zone and abs methods,
 // extracting both return values from a single zone lookup.
  struct time_locabs time_locabs(Time t) {
-    struct time_locabs ret;
+    struct time_locabs ret = {0};
 	TimeLocation *l = t.loc;
 	if (l == NULL || l == &time__localLoc) {
 		/* l = l.get(); */
@@ -483,7 +483,7 @@ struct time_date{
 // absDate is like date but operates on an absolute time.
 struct time_date time_absDate(uint64_t abs , bool full)
 {
-    struct time_date ret;
+    struct time_date ret = {0};
 	// Split into time and day.
 	uint64_t d = abs / secondsPerDay;
 
@@ -592,5 +592,68 @@ int time_Day(Time t)
 {
 	struct time_date d = time_date(t, true);
     return d.day;
+}
+
+// absWeekday is like Weekday but operates on an absolute time.
+TimeWeekday time_absWeekday(uint64_t abs)
+{
+	// January 1 of the absolute year, like January 1 of 2001, was a Monday.
+	uint64_t sec = (abs + MONDAY*secondsPerDay) % secondsPerWeek;
+	return sec / secondsPerDay;
+}
+
+// Weekday returns the day of the week specified by t.
+TimeWeekday time_Weekday(Time t)
+{
+	return time_absWeekday(time_abs(t));
+}
+
+// ISOWeek returns the ISO 8601 year and week number in which t occurs.
+// Week ranges from 1 to 53. Jan 01 to Jan 03 of year n might belong to
+// week 52 or 53 of year n-1, and Dec 29 to Dec 31 might belong to week 1
+// of year n+1.
+TimeWeek ISOWeek(Time t)
+{
+	// According to the rule that the first calendar week of a calendar year is
+	// the week including the first Thursday of that year, and that the last one is
+	// the week immediately preceding the first calendar week of the next calendar year.
+	// See https://www.iso.org/obp/ui#iso:std:iso:8601:-1:ed-1:v1:en:term:3.1.1.23 for details.
+
+	// weeks start with Monday
+	// Monday Tuesday Wednesday Thursday Friday Saturday Sunday
+	// 1      2       3         4        5      6        7
+	// +3     +2      +1        0        -1     -2       -3
+	// the offset to Thursday
+	uint64_t abs = time_abs(t);
+	TimeWeekday d = THURSDAY - time_absWeekday(abs);
+	// handle Sunday
+	if (d == 4) {
+		d = -3;
+	}
+	// find the Thursday of the calendar week
+	abs += d * secondsPerDay;
+	struct time_date td = time_absDate(abs, false);
+    return (TimeWeek){
+        .year = td.year,
+        .week = td.yday/7 + 1,
+    };
+}
+
+// absClock is like clock but operates on an absolute time.
+TimeClock time_absClock(uint64_t abs)
+{
+    TimeClock ret = {0};
+	ret.sec = abs % secondsPerDay;
+	ret.hour = ret.sec / secondsPerHour;
+	ret.sec -= ret.hour * secondsPerHour;
+	ret.min = ret.sec / secondsPerMinute;
+	ret.sec -= ret.min * secondsPerMinute;
+	return ret;
+}
+
+// Clock returns the hour, minute, and second within the day specified by t.
+TimeClock  Clock(Time t)
+{
+	return time_absClock(time_abs(t));
 }
 
