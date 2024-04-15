@@ -1,8 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-/* #include "src/time.h" */
-/* #define NANOTIME_IMPLEMENTATION */
+#define NANOTIME_IMPLEMENTATION
 #include "nanotime.h"
 
 int main(void)
@@ -18,6 +17,11 @@ int main(void)
     char *month = time_MonthString(JANUARY);
     printf("month = %s\n", month);
     free(month);
+
+    Time d = {0};
+    TimeDate td = time_Date(d);
+
+    printf("month = %d\n", td.month);
 
     return 0;
 }

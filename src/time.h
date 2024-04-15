@@ -258,6 +258,12 @@ typedef enum {
 	SATURDAY,
 } TimeWeekday;
 
+typedef struct {
+    int year;
+    TimeMonth month;
+    int day;
+} TimeDate;
+
 bool time_After(Time t, Time u);
 bool time_Before(Time t, Time u);
 int time_Compare(Time t, Time u);
@@ -267,6 +273,8 @@ char *time_MonthString(TimeMonth m);
 char *time_WeekdayString(TimeWeekday d);
 
 bool time_IsZero(Time t);
+
+TimeDate time_Date(Time t);
 
 #endif
 
