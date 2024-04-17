@@ -1,8 +1,17 @@
+/*
+nanotime.h is a single header file library.  It is base from the Go time
+package.
+
+The majority of comment in the file a from the Go source.
+
+*/
+
 #ifndef TIME_H
 #define TIME_H
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 /******************************************************************************
  * Header
@@ -100,7 +109,7 @@
 
 // A zone represents a single time zone such as CET.
 typedef struct {
-	char name[3]; // abbreviated name, "CET"
+	char name[4]; // abbreviated name, "CET"
 	int  offset;  // seconds east of UTC
 	bool isDST;   // is this zone Daylight Savings Time?
 } nt_zone;
@@ -123,7 +132,10 @@ typedef struct {
 typedef struct {
 	char *name;
 	nt_zone *zone;    // []zone
+    size_t zoneLen;
+
 	nt_zoneTrans *tx; // []zoneTrans
+    size_t txLen;
 
 	// The tzdata information can be followed by a string that describes
 	// how to handle DST transitions not recorded in zoneTrans.
@@ -255,6 +267,11 @@ typedef struct {
     int hour, min, sec;
 } nt_Clock;
 
+struct nt_TimeZone {
+    char *name;
+    int offset;
+};
+
 // A Duration represents the elapsed time between two instants
 // as an int64 nanosecond count. The representation limits the
 // largest representable duration to approximately 290 years.
@@ -263,6 +280,8 @@ typedef int64_t nt_Duration;
 
 void nt_init(void);
 
+nt_Time nt_TimeUTC(nt_Time t);
+nt_Time nt_TimeLocal(nt_Time t);
 bool nt_TimeAfter(nt_Time t, nt_Time u);
 bool nt_Before(nt_Time t, nt_Time u);
 int nt_TimeCompare(nt_Time t, nt_Time u);
@@ -296,5 +315,13 @@ nt_Duration nt_DurationRound(nt_Duration d, nt_Duration m);
 nt_Duration nt_DurationAbs(nt_Duration d);
 nt_Time nt_TimeAdd(nt_Time t , nt_Duration d);
 nt_Duration nt_TimeSub(nt_Time t, nt_Time u);
+
+struct nt_TimeZone nt_TimeZone(nt_Time t);
+int64_t nt_TimeUnix(nt_Time t);
+int64_t nt_TimeUnixMilli(nt_Time t);
+int64_t nt_TimeUnixMicro(nt_Time t);
+int64_t nt_TimeUnixNano(nt_Time t);
+
+nt_Time nt_Unix(int64_t sec, int64_t nsec);
 
 #endif

@@ -16,17 +16,21 @@ Copy `nanotime.h` into your project source code.
 Currenlty `nanotime.h` uses `nt_` as the prefix.  If you would like to use
 something different, simple do a search and replace for `nt_`.
 
-Use `nanotime_` as prefix.
+Use `nanotime_` as prefix. Time struct will be `nanotime_Time`.
+
 ```sh
 sed -i -e 's/nt_/nanotime_/g' nanotime.h
 ```
 
-Use `time_` as prefix. Similar to the Go package.
+Use `time_` as prefix. Time struct will be `time_Time`. Similar to the Go
+package.
+
 ```sh
 sed -i -e 's/nt_/time_/g' nanotime.h
 ```
 
-Or just use no prefix.
+Or just use no prefix. Time struct will be just `Time`. 
+
 ```sh
 sed -i -e 's/nt_//g' nanotime.h
 ```
