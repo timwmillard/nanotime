@@ -60,8 +60,8 @@ bool same(nt_Time t, parsedTime *u)
 	/* year, month, day := t.Date() */
 	/* hour, min, sec := t.Clock() */
 	/* name, offset := t.Zone() */
-	nt_Date date = nt_TimeDate(t);
-	nt_Clock clock = nt_TimeClock(t);
+	struct nt_Date date = nt_TimeDate(t);
+	struct nt_Clock clock = nt_TimeClock(t);
 	struct nt_TimeZone zone = nt_TimeZone(t);
 /* struct nt_TimeZone nt_TimeZone(nt_Time t) */
 
@@ -108,7 +108,7 @@ void TestSecondsToUTC(T *t)
 		}
 		if (!same(tm, golden)) {
             printf("%d] FAIL: ", i);
-			errorf(t, "SecondsToUTC(%d):  // %s", sec, nt_TimeString(tm));
+			/* errorf(t, "SecondsToUTC(%d):  // %s", sec, nt_TimeString(tm)); */
 			errorf(t, "  want=%+v", *golden);
 			/* errorf("  have=%v", nt_TimeFormat(tm, nt_RFC3339+" MST")); */
 		} else {

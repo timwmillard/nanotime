@@ -252,21 +252,6 @@ typedef enum {
 	nt_SATURDAY,
 } nt_Weekday;
 
-typedef struct {
-    int year;
-    nt_Month month;
-    int day;
-} nt_Date;
-
-typedef struct {
-    int year, week;
-} nt_Week;
-
-
-typedef struct {
-    int hour, min, sec;
-} nt_Clock;
-
 struct nt_TimeZone {
     char *name;
     int offset;
@@ -277,7 +262,41 @@ struct nt_TimeZone {
 // largest representable duration to approximately 290 years.
 typedef int64_t nt_Duration;
 
+// Common durations. There is no definition for units of Day or larger
+// to avoid confusion across daylight savings time zone transitions.
+//
+// To count the number of units in a Duration, divide:
+//
+//	second := time.Second
+//	fmt.Print(int64(second/time.Millisecond)) // prints 1000
+//
+// To convert an integer number of units to a Duration, multiply:
+//
+//	seconds := 10
+//	fmt.Print(time.Duration(seconds)*time.Second) // prints 10s
 
+static const nt_Duration nt_NANOSECOND  = 1;
+static const nt_Duration nt_MICROSECOND = 1000 * nt_NANOSECOND;
+static const nt_Duration nt_MILLISECOND = 1000 * nt_MICROSECOND;
+static const nt_Duration nt_SECOND      = 1000 * nt_MILLISECOND;
+static const nt_Duration nt_MINUTE      = 60 * nt_SECOND;
+static const nt_Duration nt_HOUR        = 60 * nt_MINUTE;
+
+
+struct nt_Date{
+    int year;
+    nt_Month month;
+    int day;
+};
+
+struct nt_Week{
+    int year, week;
+};
+
+struct nt_Clock{
+    int hour, min, sec;
+};
+            //
 void nt_init(void);
 
 nt_Time nt_TimeUTC(nt_Time t);
@@ -291,13 +310,13 @@ char *nt_TimeMonthString(nt_Month m);
 char *nt_TimeWeekdayString(nt_Weekday d);
 
 bool nt_TimeIsZero(nt_Time t);
-nt_Date nt_TimeDate(nt_Time t);
+struct nt_Date nt_TimeDate(nt_Time t);
 int nt_TimeYear(nt_Time t);
 nt_Month nt_TimeMonth(nt_Time t);
 int nt_TimeDay(nt_Time t);
 nt_Weekday nt_TimeWeekday(nt_Time t);
-nt_Week nt_TimeISOWeek(nt_Time t);
-nt_Clock  nt_TimeClock(nt_Time t);
+struct nt_Week nt_TimeISOWeek(nt_Time t);
+struct nt_Clock  nt_TimeClock(nt_Time t);
 int nt_TimeHour(nt_Time t);
 int nt_TimeMinute(nt_Time t);
 int nt_TimeSecond(nt_Time t);
@@ -323,5 +342,10 @@ int64_t nt_TimeUnixMicro(nt_Time t);
 int64_t nt_TimeUnixNano(nt_Time t);
 
 nt_Time nt_Unix(int64_t sec, int64_t nsec);
+nt_Time nt_Now(void);
+nt_Time nt_Date(int year, nt_Month month, int day, int hour, int min, int sec, int nsec, nt_Location *loc);
+nt_Location *nt_TimeLocation(nt_Time t);
+nt_Duration nt_Until(nt_Time t);
+nt_Duration nt_Since(nt_Time t);
 
 #endif
