@@ -2,9 +2,10 @@
 .DS_Store
 
 /timetest
-/timetest*
+/timetest.dSYM*
 
 /calc/calc
 
 /src/time_test
+/src/time_test.dSYM*
 
