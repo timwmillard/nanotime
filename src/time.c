@@ -208,24 +208,6 @@ int32_t nt_daysBefore[] = {
 	31 + 28 + 31 + 30 + 31 + 30 + 31 + 31 + 30 + 31 + 30 + 31,
 };
 
-struct nt_now {
-    int64_t sec;
-    int32_t nsec;
-    int64_t mono;
-};
-
-
-struct nt_now nt_now()
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-
-    return (struct nt_now){
-        .sec = ts.tv_sec,
-        .nsec = ts.tv_nsec,
-        .mono = 0,
-    };
-}
 
 // Monotonic times are reported as offsets from startNano.
 // We initialize startNano to runtimeNano() - 1 so that on systems where
@@ -236,8 +218,14 @@ struct nt_now nt_now()
 // Note: need to call nt_init to set startNano to runtimeNano()
 int64_t nt_startNano = 0;
 
+// alpha and omega are the beginning and end of time for zone
+// transitions.
+const int64_t nt_alpha = -((int64_t)1<<63);  // math.MinInt64
+const int64_t nt_omega = ((int64_t)1<<63) - 1; // math.MaxInt64
+
 
 #define nt_EMPTY_STR(s) ((s) == NULL || (s)[0] == '\0')
+
 
 // Private function definitions
 // time.go
@@ -265,10 +253,34 @@ int nt_fmtInt(char buf[], size_t bufLen, uint64_t v);
 nt_Duration nt_subMono(int64_t t, int64_t u);
 struct nt_date date(nt_Time t, bool full);
 struct nt_date nt_absDate(uint64_t abs , bool full);
-//
+int daysIn(nt_Month m, int year);
+uint64_t nt_daysSinceEpoch(int year);
+struct nt_now nt_now();
 int64_t nt_runtimeNano();
 bool nt_isLeap(int year);
+struct nt_div {
+    int qmod2;
+    nt_Duration r;
+};
+struct nt_div nt_div(nt_Time t, nt_Duration d);
+
+// zoneinfo.go
+struct nt_Location_lookup {
+    char *name;
+    int offset;
+    int start;
+    int64_t end;
+    bool isDST;
+};
+struct nt_Location_lookup nt_Location_lookup(nt_Location *l, int64_t sec);
 //
+
+
+// Load local timezone data??
+void nt_init(void)
+{
+    nt_startNano = nt_runtimeNano() - 1;
+}
 
 /*** time.go Implementation ***/
 
@@ -1107,8 +1119,60 @@ struct nt_date nt_absDate(uint64_t abs , bool full)
 	return ret;
 }
 
-// UPDATE //////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
+int daysIn(nt_Month m, int year)
+{
+	if (m == nt_FEBRUARY && nt_isLeap(year)) {
+		return 29;
+	}
+	return nt_daysBefore[m] - nt_daysBefore[m-1];
+}
+
+// daysSinceEpoch takes a year and returns the number of days from
+// the absolute epoch to the start of that year.
+// This is basically (year - zeroYear) * 365, but accounting for leap days.
+uint64_t nt_daysSinceEpoch(int year) 
+{
+	uint64_t y = year - nt_absoluteZeroYear;
+
+	// Add in days from 400-year cycles.
+	uint64_t n = y / 400;
+	y -= 400 * n;
+	uint64_t d = nt_daysPer400Years * n;
+
+	// Add in 100-year cycles.
+	n = y / 100;
+	y -= 100 * n;
+	d += nt_daysPer100Years * n;
+
+	// Add in 4-year cycles.
+	n = y / 4;
+	y -= 4 * n;
+	d += nt_daysPer4Years * n;
+
+	// Add in non-leap years.
+	n = y;
+	d += 365 * n;
+
+	return d;
+}
+
+struct nt_now {
+    int64_t sec;
+    int32_t nsec;
+    int64_t mono;
+};
+// Provided by package runtime.
+struct nt_now nt_now()
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+
+    return (struct nt_now){
+        .sec = ts.tv_sec,
+        .nsec = ts.tv_nsec,
+        .mono = 0,
+    };
+}
 
 // runtimeNano returns the current value of the runtime clock in nanoseconds.
 //
@@ -1134,13 +1198,6 @@ nt_Time nt_Now(void)
 	return (nt_Time){nt_hasMonotonic | now.sec<<nt_nsecShift | now.nsec, now.mono, nt_Local};
 }
 
-
-// Load local timezone data??
-void nt_init(void)
-{
-    nt_startNano = nt_runtimeNano() - 1;
-}
-
 nt_Time nt_unixTime(int64_t sec, int32_t nsec)
 {
 	return (nt_Time){nsec, sec + nt_unixToInternal, nt_Local};
@@ -1161,18 +1218,408 @@ nt_Time nt_TimeLocal(nt_Time t)
 	return t;
 }
 
+// In returns a copy of t representing the same time instant, but
+// with the copy's location information set to loc for display
+// purposes.
+//
+// In panics if loc is nil.
+nt_Time nt_TimeIn(nt_Time t, nt_Location *loc) 
+{
+	if (loc == NULL) {
+		nt_panic("time: missing Location in call to nt_TimeIn");
+	}
+	nt_Time_setLoc(&t, loc);
+	return t;
+}
+
+// Location returns the time zone information associated with t.
+nt_Location *nt_TimeLocation(nt_Time t)
+{
+	nt_Location *l = t.loc;
+	if (l == NULL) {
+		l = nt_UTC;
+	}
+	return l;
+}
+
+// Zone computes the time zone in effect at time t, returning the abbreviated
+// name of the zone (such as "CET") and its offset in seconds east of UTC.
+struct nt_TimeZone nt_TimeZone(nt_Time t)
+{
+	struct nt_Location_lookup lookup = nt_Location_lookup(t.loc, nt_Time_unixSec(&t));
+	return (struct nt_TimeZone){
+        .name = lookup.name,
+        .offset = lookup.offset,
+    };
+}
+
+struct nt_TimeZoneBounds {
+    nt_Time start, end;
+};
+// ZoneBounds returns the bounds of the time zone in effect at time t.
+// The zone begins at start and the next zone begins at end.
+// If the zone begins at the beginning of time, start will be returned as a zero Time.
+// If the zone goes on forever, end will be returned as a zero Time.
+// The Location of the returned times will be the same as t.
+struct nt_TimeZoneBounds nt_TimeZoneBounds(nt_Time t)
+{
+	/* _, _, startSec, endSec, _ := t.loc.lookup(t.unixSec()) */
+    struct nt_TimeZoneBounds ret = {0};
+	struct nt_Location_lookup lookup = nt_Location_lookup(t.loc, nt_Time_unixSec(&t));
+    int startSec = lookup.start;
+    int endSec = lookup.end;
+	if (startSec != nt_alpha) {
+		ret.start = nt_unixTime(startSec, 0);
+		nt_Time_setLoc(&ret.start, t.loc);
+	}
+	if (endSec != nt_omega) {
+		ret.end = nt_unixTime(endSec, 0);
+		nt_Time_setLoc(&ret.end, t.loc);
+	}
+	return ret;
+}
+
+// Unix returns t as a Unix time, the number of seconds elapsed
+// since January 1, 1970 UTC. The result does not depend on the
+// location associated with t.
+// Unix-like operating systems often record time as a 32-bit
+// count of seconds, but since the method here returns a 64-bit
+// value it is valid for billions of years into the past or future.
+int64_t nt_TimeUnix(nt_Time t)
+{
+	return nt_Time_unixSec(&t);
+}
+
+
+// UnixNano returns t as a Unix time, the number of nanoseconds elapsed
+// since January 1, 1970 UTC. The result is undefined if the Unix time
+// in nanoseconds cannot be represented by an int64 (a date before the year
+// 1678 or after 2262). Note that this means the result of calling UnixNano
+// on the zero Time is undefined. The result does not depend on the
+// location associated with t.
+int64_t nt_TimeUnixNano(nt_Time t)
+{
+	return nt_Time_unixSec(&t)*1e9 + nt_Time_nsec(&t);
+}
+
+// Encoding methods are not implemented
+// MarshalBinary
+// UnmarshalBinary
+// GobEncode
+// GobDecode
+// MarshalJSON
+// UnmarshalJSON
+// MarshalText
+// UnmarshalText
+
+// Unix returns the local Time corresponding to the given Unix time,
+// sec seconds and nsec nanoseconds since January 1, 1970 UTC.
+// It is valid to pass nsec outside the range [0, 999999999].
+// Not all sec values have a corresponding time value. One such
+// value is 1<<63-1 (the largest int64 value).
+nt_Time nt_Unix(int64_t sec, int64_t nsec)
+{
+	if (nsec < 0 || nsec >= 1e9) {
+		int64_t n = nsec / 1e9;
+		sec += n;
+		nsec -= n * 1e9;
+		if (nsec < 0) {
+			nsec += 1e9;
+			sec--;
+		}
+	}
+	return nt_unixTime(sec, nsec);
+}
+
+// UnixMilli returns t as a Unix time, the number of milliseconds elapsed since
+// January 1, 1970 UTC. The result is undefined if the Unix time in
+// milliseconds cannot be represented by an int64 (a date more than 292 million
+// years before or after 1970). The result does not depend on the
+// location associated with t.
+int64_t nt_TimeUnixMilli(nt_Time t)
+{
+	return nt_Time_unixSec(&t)*1e3 + nt_Time_nsec(&t)/1e6;
+}
+
+// UnixMicro returns t as a Unix time, the number of microseconds elapsed since
+// January 1, 1970 UTC. The result is undefined if the Unix time in
+// microseconds cannot be represented by an int64 (a date before year -290307 or
+// after year 294246). The result does not depend on the location associated
+// with t.
+int64_t nt_TimeUnixMicro(nt_Time t)
+{
+	return nt_Time_unixSec(&t)*1e6 + nt_Time_nsec(&t)/1e3;
+}
+
+// IsDST reports whether the time in the configured location is in Daylight Savings Time.
+bool nt_TimeIsDST(nt_Time t)
+{
+    struct nt_Location_lookup lookup = nt_Location_lookup(t.loc, nt_TimeUnix(t));
+	return lookup.isDST;
+}
+
 bool nt_isLeap(int year)
 {
 	return year%4 == 0 && (year%100 != 0 || year%400 == 0);
 }
 
+struct nt_norm {
+    int nhi, nlo;
+};
+// norm returns nhi, nlo such that
+//
+//	hi * base + lo == nhi * base + nlo
+//	0 <= nlo < base
+struct nt_norm nt_norm(int hi, int lo, int base) 
+{
+	if (lo < 0) {
+		int n = (-lo-1)/base + 1;
+		hi -= n;
+		lo += n * base;
+	}
+	if (lo >= base) {
+		int n = lo / base;
+		hi += n;
+		lo -= n * base;
+	}
+	return (struct nt_norm){.nhi = hi, .nlo = lo};
+}
+
+// Date returns the Time corresponding to
+//
+//	yyyy-mm-dd hh:mm:ss + nsec nanoseconds
+//
+// in the appropriate zone for that time in the given location.
+//
+// The month, day, hour, min, sec, and nsec values may be outside
+// their usual ranges and will be normalized during the conversion.
+// For example, October 32 converts to November 1.
+//
+// A daylight savings time transition skips or repeats times.
+// For example, in the United States, March 13, 2011 2:15am never occurred,
+// while November 6, 2011 1:15am occurred twice. In such cases, the
+// choice of time zone, and therefore the time, is not well-defined.
+// Date returns a time that is correct in one of the two zones involved
+// in the transition, but it does not guarantee which.
+//
+// Date panics if loc is nil.
+nt_Time nt_Date(int year, nt_Month month, int day, int hour, int min, int sec, int nsec, nt_Location *loc)
+{
+	if (loc == NULL) {
+        nt_panic("time: missing Location in call to Date\n");
+	}
+
+	// Normalize month, overflowing into year.
+	int m = month - 1;
+    struct nt_norm norm;
+	norm = nt_norm(year, m, 12);
+    year = norm.nhi;
+    m = norm.nlo;
+	month = m + 1;
+
+	// Normalize nsec, sec, min, hour, overflowing into day.
+	norm = nt_norm(sec, nsec, 1e9);
+    sec = norm.nhi;
+    nsec = norm.nlo;
+	norm = nt_norm(min, sec, 60);
+    min = norm.nhi;
+    sec = norm.nlo;
+	norm = nt_norm(hour, min, 60);
+    hour = norm.nhi;
+    min = norm.nlo;
+	norm = nt_norm(day, hour, 24);
+    day = norm.nhi;
+    hour = norm.nlo;
+
+	// Compute days since the absolute epoch.
+	uint64_t d = nt_daysSinceEpoch(year);
+
+	// Add in days before this month.
+	d += nt_daysBefore[month-1];
+	if (nt_isLeap(year) && month >= nt_MARCH) {
+		d++; // February 29
+	}
+
+	// Add in days before today.
+	d += day - 1;
+
+	// Add in time elapsed today.
+	uint64_t abs = d * nt_secondsPerDay;
+    abs += hour*nt_secondsPerHour + min*nt_secondsPerMinute + sec;
+
+	int64_t unix = abs + (nt_absoluteToInternal + nt_internalToUnix);
+
+	// Look for zone offset for expected time, so we can adjust to UTC.
+	// The lookup function expects UTC, so first we pass unix in the
+	// hope that it will not be too close to a zone transition,
+	// and then adjust if it is.
+	struct nt_Location_lookup lookup = nt_Location_lookup(loc, unix);
+    int offset = lookup.offset;
+    int start = lookup.start;
+    int64_t end = lookup.end;
+	if (offset != 0) {
+		int64_t utc = unix - offset;
+		// If utc is valid for the time zone we found, then we have the right offset.
+		// If not, we get the correct offset by looking up utc in the location.
+		if (utc < start || utc >= end) {
+            nt_Location_lookup(loc, utc);
+            offset = lookup.offset;
+		}
+		unix -= offset;
+	}
+
+	nt_Time t = nt_unixTime(unix, nsec);
+    nt_Time_setLoc(&t, loc);
+	return t;
+}
+
+// Truncate returns the result of rounding t down to a multiple of d (since the zero time).
+// If d <= 0, Truncate returns t stripped of any monotonic clock reading but otherwise unchanged.
+//
+// Truncate operates on the time as an absolute duration since the
+// zero time; it does not operate on the presentation form of the
+// time. Thus, Truncate(Hour) may return a time with a non-zero
+// minute, depending on the time's Location.
+nt_Time nt_TimeTruncate(nt_Time t, nt_Duration d)
+{
+	nt_Time_stripMono(&t);
+	if (d <= 0) {
+		return t;
+	}
+    struct nt_div div = nt_div(t, d);
+    nt_Duration r = div.r;
+	return nt_TimeAdd(t, -r);
+}
+
+// Round returns the result of rounding t to the nearest multiple of d (since the zero time).
+// The rounding behavior for halfway values is to round up.
+// If d <= 0, Round returns t stripped of any monotonic clock reading but otherwise unchanged.
+//
+// Round operates on the time as an absolute duration since the
+// zero time; it does not operate on the presentation form of the
+// time. Thus, Round(Hour) may return a time with a non-zero
+// minute, depending on the time's Location.
+nt_Time nt_TimeRound(nt_Time t, nt_Duration d)
+{
+	nt_Time_stripMono(&t);
+	if (d <= 0) {
+		return t;
+	}
+	struct nt_div div = nt_div(t, d);
+    nt_Duration r = div.r;
+	if (nt_lessThanHalf(r, d)) {
+		return nt_TimeAdd(t, -r);
+	}
+	return nt_TimeAdd(t, d - r);
+}
+
+// div divides t by d and returns the quotient parity and remainder.
+// We don't use the quotient parity anymore (round half up instead of round to even)
+// but it's still here in case we change our minds.
+struct nt_div nt_div(nt_Time t, nt_Duration d)
+{
+    struct nt_div ret = {0};
+	bool neg = false;
+	int32_t nsec = nt_Time_nsec(&t);
+	int64_t sec = nt_Time_sec(&t);
+	if (sec < 0) {
+		// Operate on absolute value.
+		neg = true;
+		sec = -sec;
+		nsec = -nsec;
+		if (nsec < 0) {
+			nsec += 1e9;
+			sec--; // sec >= 1 before the -- so safe
+		}
+	}
+
+	// Special case: 2d divides 1 second.
+	if (d < nt_SECOND && nt_SECOND%(d+d) == 0) {
+		ret.qmod2 = (nsec/d) & 1;
+		ret.r = nsec % d;
+
+	// Special case: d is a multiple of 1 second.
+    } else if (d%nt_SECOND == 0) {
+		int64_t d1 = d / nt_SECOND;
+		ret.qmod2 = (sec/d1) & 1;
+		ret.r = (sec%d1)*nt_SECOND + nsec;
+
+	// General case.
+	// This could be faster if more cleverness were applied,
+	// but it's really only here to avoid special case restrictions in the API.
+	// No one will care about these cases.
+    } else {
+		// Compute nanoseconds as 128-bit number.
+		uint64_t sec1 = (uint64_t)sec;
+		uint64_t tmp = (sec1 >> 32) * 1e9;
+		uint64_t u1 = tmp >> 32;
+		uint64_t u0 = tmp << 32;
+		tmp = (sec1 & 0xFFFFFFFF) * 1e9;
+        uint64_t u0x = u0;
+        u0 = u0+tmp;
+		if (u0 < u0x) {
+			u1++;
+		}
+        u0x = u0;
+        u0 = u0+nsec;
+		if (u0 < u0x) {
+			u1++;
+		}
+
+		// Compute remainder by subtracting r<<k for decreasing k.
+		// Quotient parity is whether we subtract on last round.
+		uint64_t d1 = d;
+		while ((d1>>63) != 1) {
+			d1 <<= 1;
+		}
+		uint64_t d0 = 0;
+		while(1) {
+			ret.qmod2 = 0;
+			if (u1 > d1 || (u1 == d1 && u0 >= d0)) {
+				// subtract
+				ret.qmod2 = 1;
+                u0x = u0;
+                u0 = u0-d0;
+				if (u0 > u0x) {
+					u1--;
+				}
+				u1 -= d1;
+			}
+			if (d1 == 0 && d0 == d) {
+				break;
+			}
+			d0 >>= 1;
+			d0 |= (d1 & 1) << 63;
+			d1 >>= 1;
+		}
+		ret.r = u0;
+	}
+
+	if (neg && ret.r != 0) {
+		// If input was negative and not an exact multiple of d, we computed q, r such that
+		//	q*d + r = -t
+		// But the right answers are given by -(q-1), d-r:
+		//	q*d + r = -t
+		//	-q*d - r = t
+		//	-(q-1)*d + (d - r) = t
+		ret.qmod2 ^= 1;
+		ret.r = d - ret.r;
+	}
+	return ret;
+}
+
+// end time.go
+
+/*** zoneinfo.go Implementation ***/
+
+// UPDATE //////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+
+
+
 
 // zoneinfo.go
-
-// alpha and omega are the beginning and end of time for zone
-// transitions.
-const int64_t nt_alpha = -((int64_t)1<<63);  // math.MinInt64
-const int64_t nt_omega = ((int64_t)1<<63) - 1; // math.MaxInt64
 
 
 /* var localOnce sync.Once */
@@ -1195,13 +1642,6 @@ char *nt_LocationString(nt_Location *l)
 	return nt_Location_get(l)->name;
 }
 
-struct nt_Location_lookup {
-    char *name;
-    int offset;
-    int start;
-    int64_t end;
-    bool isDST;
-};
 // lookup returns information about the time zone in use at an
 // instant in time expressed as seconds since January 1, 1970 00:00:00 UTC.
 //
@@ -1496,265 +1936,4 @@ struct nt_tzsetName nt_tzsetName(char *s)
 /* 		return dstName, dstOffset, startSec + abs, endSec + abs, dstIsDST, true */
 /* 	} */
 /* } */
-
-// In returns a copy of t representing the same time instant, but
-// with the copy's location information set to loc for display
-// purposes.
-//
-// In panics if loc is nil.
-nt_Time nt_TimeIn(nt_Time t, nt_Location *loc) 
-{
-	if (loc == NULL) {
-		nt_panic("time: missing Location in call to nt_TimeIn");
-	}
-	nt_Time_setLoc(&t, loc);
-	return t;
-}
-
-// Location returns the time zone information associated with t.
-nt_Location *nt_TimeLocation(nt_Time t)
-{
-	nt_Location *l = t.loc;
-	if (l == NULL) {
-		l = nt_UTC;
-	}
-	return l;
-}
-
-// Zone computes the time zone in effect at time t, returning the abbreviated
-// name of the zone (such as "CET") and its offset in seconds east of UTC.
-struct nt_TimeZone nt_TimeZone(nt_Time t)
-{
-	struct nt_Location_lookup lookup = nt_Location_lookup(t.loc, nt_Time_unixSec(&t));
-	return (struct nt_TimeZone){
-        .name = lookup.name,
-        .offset = lookup.offset,
-    };
-}
-
-struct nt_TimeZoneBounds {
-    nt_Time start, end;
-};
-// ZoneBounds returns the bounds of the time zone in effect at time t.
-// The zone begins at start and the next zone begins at end.
-// If the zone begins at the beginning of time, start will be returned as a zero Time.
-// If the zone goes on forever, end will be returned as a zero Time.
-// The Location of the returned times will be the same as t.
-struct nt_TimeZoneBounds nt_TimeZoneBounds(nt_Time t)
-{
-	/* _, _, startSec, endSec, _ := t.loc.lookup(t.unixSec()) */
-    struct nt_TimeZoneBounds ret = {0};
-	struct nt_Location_lookup lookup = nt_Location_lookup(t.loc, nt_Time_unixSec(&t));
-    int startSec = lookup.start;
-    int endSec = lookup.end;
-	if (startSec != nt_alpha) {
-		ret.start = nt_unixTime(startSec, 0);
-		nt_Time_setLoc(&ret.start, t.loc);
-	}
-	if (endSec != nt_omega) {
-		ret.end = nt_unixTime(endSec, 0);
-		nt_Time_setLoc(&ret.end, t.loc);
-	}
-	return ret;
-}
-
-// Unix returns t as a Unix time, the number of seconds elapsed
-// since January 1, 1970 UTC. The result does not depend on the
-// location associated with t.
-// Unix-like operating systems often record time as a 32-bit
-// count of seconds, but since the method here returns a 64-bit
-// value it is valid for billions of years into the past or future.
-int64_t nt_TimeUnix(nt_Time t)
-{
-	return nt_Time_unixSec(&t);
-}
-
-// UnixMilli returns t as a Unix time, the number of milliseconds elapsed since
-// January 1, 1970 UTC. The result is undefined if the Unix time in
-// milliseconds cannot be represented by an int64 (a date more than 292 million
-// years before or after 1970). The result does not depend on the
-// location associated with t.
-int64_t nt_TimeUnixMilli(nt_Time t)
-{
-	return nt_Time_unixSec(&t)*1e3 + nt_Time_nsec(&t)/1e6;
-}
-
-// UnixMicro returns t as a Unix time, the number of microseconds elapsed since
-// January 1, 1970 UTC. The result is undefined if the Unix time in
-// microseconds cannot be represented by an int64 (a date before year -290307 or
-// after year 294246). The result does not depend on the location associated
-// with t.
-int64_t nt_TimeUnixMicro(nt_Time t)
-{
-	return nt_Time_unixSec(&t)*1e6 + nt_Time_nsec(&t)/1e3;
-}
-
-// UnixNano returns t as a Unix time, the number of nanoseconds elapsed
-// since January 1, 1970 UTC. The result is undefined if the Unix time
-// in nanoseconds cannot be represented by an int64 (a date before the year
-// 1678 or after 2262). Note that this means the result of calling UnixNano
-// on the zero Time is undefined. The result does not depend on the
-// location associated with t.
-int64_t nt_TimeUnixNano(nt_Time t)
-{
-	return nt_Time_unixSec(&t)*1e9 + nt_Time_nsec(&t);
-}
-
-// Unix returns the local Time corresponding to the given Unix time,
-// sec seconds and nsec nanoseconds since January 1, 1970 UTC.
-// It is valid to pass nsec outside the range [0, 999999999].
-// Not all sec values have a corresponding time value. One such
-// value is 1<<63-1 (the largest int64 value).
-nt_Time nt_Unix(int64_t sec, int64_t nsec)
-{
-	if (nsec < 0 || nsec >= 1e9) {
-		int64_t n = nsec / 1e9;
-		sec += n;
-		nsec -= n * 1e9;
-		if (nsec < 0) {
-			nsec += 1e9;
-			sec--;
-		}
-	}
-	return nt_unixTime(sec, nsec);
-}
-
-struct nt_norm {
-    int nhi, nlo;
-};
-// norm returns nhi, nlo such that
-//
-//	hi * base + lo == nhi * base + nlo
-//	0 <= nlo < base
-struct nt_norm nt_norm(int hi, int lo, int base) 
-{
-	if (lo < 0) {
-		int n = (-lo-1)/base + 1;
-		hi -= n;
-		lo += n * base;
-	}
-	if (lo >= base) {
-		int n = lo / base;
-		hi += n;
-		lo -= n * base;
-	}
-	return (struct nt_norm){.nhi = hi, .nlo = lo};
-}
-
-// daysSinceEpoch takes a year and returns the number of days from
-// the absolute epoch to the start of that year.
-// This is basically (year - zeroYear) * 365, but accounting for leap days.
-uint64_t nt_daysSinceEpoch(int year) 
-{
-	uint64_t y =  year - nt_absoluteZeroYear;
-
-	// Add in days from 400-year cycles.
-	uint64_t n = y / 400;
-	y -= 400 * n;
-	uint64_t d = nt_daysPer400Years * n;
-
-	// Add in 100-year cycles.
-	n = y / 100;
-	y -= 100 * n;
-	d += nt_daysPer100Years * n;
-
-	// Add in 4-year cycles.
-	n = y / 4;
-	y -= 4 * n;
-	d += nt_daysPer4Years * n;
-
-	// Add in non-leap years.
-	n = y;
-	d += 365 * n;
-
-	return d;
-}
-
-// Date returns the Time corresponding to
-//
-//	yyyy-mm-dd hh:mm:ss + nsec nanoseconds
-//
-// in the appropriate zone for that time in the given location.
-//
-// The month, day, hour, min, sec, and nsec values may be outside
-// their usual ranges and will be normalized during the conversion.
-// For example, October 32 converts to November 1.
-//
-// A daylight savings time transition skips or repeats times.
-// For example, in the United States, March 13, 2011 2:15am never occurred,
-// while November 6, 2011 1:15am occurred twice. In such cases, the
-// choice of time zone, and therefore the time, is not well-defined.
-// Date returns a time that is correct in one of the two zones involved
-// in the transition, but it does not guarantee which.
-//
-// Date panics if loc is nil.
-nt_Time nt_Date(int year, nt_Month month, int day, int hour, int min, int sec, int nsec, nt_Location *loc)
-{
-	if (loc == NULL) {
-        nt_panic("time: missing Location in call to Date\n");
-	}
-
-	// Normalize month, overflowing into year.
-	int m = month - 1;
-    struct nt_norm norm;
-	norm = nt_norm(year, m, 12);
-    year = norm.nhi;
-    m = norm.nlo;
-	month = m + 1;
-
-	// Normalize nsec, sec, min, hour, overflowing into day.
-	norm = nt_norm(sec, nsec, 1e9);
-    sec = norm.nhi;
-    nsec = norm.nlo;
-	norm = nt_norm(min, sec, 60);
-    min = norm.nhi;
-    sec = norm.nlo;
-	norm = nt_norm(hour, min, 60);
-    hour = norm.nhi;
-    min = norm.nlo;
-	norm = nt_norm(day, hour, 24);
-    day = norm.nhi;
-    hour = norm.nlo;
-
-	// Compute days since the absolute epoch.
-	uint64_t d = nt_daysSinceEpoch(year);
-
-	// Add in days before this month.
-	d += nt_daysBefore[month-1];
-	if (nt_isLeap(year) && month >= nt_MARCH) {
-		d++; // February 29
-	}
-
-	// Add in days before today.
-	d += day - 1;
-
-	// Add in time elapsed today.
-	uint64_t abs = d * nt_secondsPerDay;
-    abs += hour*nt_secondsPerHour + min*nt_secondsPerMinute + sec;
-
-	int64_t unix = abs + (nt_absoluteToInternal + nt_internalToUnix);
-
-	// Look for zone offset for expected time, so we can adjust to UTC.
-	// The lookup function expects UTC, so first we pass unix in the
-	// hope that it will not be too close to a zone transition,
-	// and then adjust if it is.
-	struct nt_Location_lookup lookup = nt_Location_lookup(loc, unix);
-    int offset = lookup.offset;
-    int start = lookup.start;
-    int64_t end = lookup.end;
-	if (offset != 0) {
-		int64_t utc = unix - offset;
-		// If utc is valid for the time zone we found, then we have the right offset.
-		// If not, we get the correct offset by looking up utc in the location.
-		if (utc < start || utc >= end) {
-            nt_Location_lookup(loc, utc);
-            offset = lookup.offset;
-		}
-		unix -= offset;
-	}
-
-	nt_Time t = nt_unixTime(unix, nsec);
-    nt_Time_setLoc(&t, loc);
-	return t;
-}
 

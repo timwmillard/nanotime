@@ -344,8 +344,11 @@ int64_t nt_TimeUnixNano(nt_Time t);
 nt_Time nt_Unix(int64_t sec, int64_t nsec);
 nt_Time nt_Now(void);
 nt_Time nt_Date(int year, nt_Month month, int day, int hour, int min, int sec, int nsec, nt_Location *loc);
+nt_Time nt_TimeTruncate(nt_Time t, nt_Duration d);
 nt_Location *nt_TimeLocation(nt_Time t);
 nt_Duration nt_Until(nt_Time t);
 nt_Duration nt_Since(nt_Time t);
+bool nt_TimeIsDST(nt_Time t);
+nt_Time nt_TimeRound(nt_Time t, nt_Duration d);
 
 #endif
