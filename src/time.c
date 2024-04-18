@@ -265,6 +265,7 @@ struct nt_div {
 struct nt_div nt_div(nt_Time t, nt_Duration d);
 
 // zoneinfo.go
+nt_Location *nt_Location_get(nt_Location *l);
 struct nt_Location_lookup {
     char *name;
     int offset;
@@ -273,6 +274,35 @@ struct nt_Location_lookup {
     bool isDST;
 };
 struct nt_Location_lookup nt_Location_lookup(nt_Location *l, int64_t sec);
+int nt_Location_lookupFirstZone(nt_Location *l);
+bool nt_Location_firstZoneUsed(nt_Location *l);
+struct nt_tzset {
+    char *name;
+    int offset;
+    int start;
+    int64_t end;
+    bool isDST;
+    bool ok;
+};
+struct nt_tzset nt_tzset(char *s, int64_t lastTxSec, int64_t sec);
+struct nt_tzsetName {
+    char *tzName;
+    char *remainder;
+    bool ok;
+};
+struct nt_tzsetName nt_tzsetName(char *s);
+struct nt_tzsetOffset {
+    int offset;
+    char *rest;
+    bool ok;
+};
+struct nt_tzsetOffset nt_tzsetOffset(char *s);
+struct nt_tzsetNum {
+    int num;
+    char *rest;
+    bool ok;
+};
+struct nt_tzsetNum nt_tzsetNum(char *s, int min, int max);
 //
 
 
@@ -1612,19 +1642,7 @@ struct nt_div nt_div(nt_Time t, nt_Duration d)
 
 /*** zoneinfo.go Implementation ***/
 
-// UPDATE //////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-
-
-
-
-// zoneinfo.go
-
-
-/* var localOnce sync.Once */
-
-nt_Location *nt_Location_get(nt_Location *l) 
+nt_Location *nt_Location_get(nt_Location *l)
 {
 	if (l == NULL) {
 		return &nt_utcLoc;
@@ -1722,19 +1740,6 @@ struct nt_Location_lookup nt_Location_lookup(nt_Location *l, int64_t sec) {
 	return ret;
 }
 
-// firstZoneUsed reports whether the first zone is used by some
-// transition.
-bool nt_Location_firstZoneUsed(nt_Location *l)
-{
-    for (int i = 0; i < l->txLen; i++ ) {
-        nt_zoneTrans tx = l->tx[i];
-		if (tx.index == 0) {
-			return true;
-		}
-	}
-	return false;
-}
-
 // lookupFirstZone returns the index of the time zone to use for times
 // before the first transition time, or when there are no transition
 // times.
@@ -1777,11 +1782,134 @@ int nt_Location_lookupFirstZone(nt_Location *l) {
 	return 0;
 }
 
-struct nt_tzsetName {
-    char *tzName;
-    char *remainder;
+// firstZoneUsed reports whether the first zone is used by some
+// transition.
+bool nt_Location_firstZoneUsed(nt_Location *l)
+{
+    for (int i = 0; i < l->txLen; i++ ) {
+        nt_zoneTrans tx = l->tx[i];
+		if (tx.index == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// tzset takes a timezone string like the one found in the TZ environment
+// variable, the time of the last time zone transition expressed as seconds
+// since January 1, 1970 00:00:00 UTC, and a time expressed the same way.
+// We call this a tzset string since in C the function tzset reads TZ.
+// The return values are as for lookup, plus ok which reports whether the
+// parse succeeded.
+struct nt_tzset nt_tzset(char *s, int64_t lastTxSec, int64_t sec)
+{
+	char *stdName = NULL;
+    char *dstName = NULL;
+	int	stdOffset = 0;
+    int dstOffset = 0;
     bool ok;
-};
+
+    struct nt_tzsetName name = nt_tzsetName(s);
+    stdName = name.tzName;
+    s = name.remainder;
+    ok = name.ok;
+	if (ok) {
+		/* stdOffset, s, ok = tzsetOffset(s); */
+        struct nt_tzsetOffset offset = nt_tzsetOffset(s);
+        stdOffset = offset.offset;
+        s = offset.rest;
+        ok = offset.ok;
+	}
+	if (!ok) {
+        return (struct nt_tzset){"", 0, 0, 0, false, false};
+	}
+
+	// The numbers in the tzset string are added to local time to get UTC,
+	// but our offsets are added to UTC to get local time,
+	// so we negate the number we see here.
+	stdOffset = -stdOffset;
+
+	if (strlen(s)== 0 || s[0] == ',') {
+		// No daylight savings time.
+		return (struct nt_tzset){stdName, stdOffset, lastTxSec, nt_omega, false, true};
+	}
+
+	name = nt_tzsetName(s);
+    dstName = name.tzName;
+    s = name.remainder;
+    ok = name.ok;
+	if (ok) {
+		if (strlen(s) == 0 || s[0] == ',') {
+			dstOffset = stdOffset + nt_secondsPerHour;
+		} else {
+			struct nt_tzsetOffset offset = nt_tzsetOffset(s);
+            dstOffset = offset.offset;
+            s = offset.rest;
+            ok = offset.ok;
+			dstOffset = -dstOffset; // as with stdOffset, above
+		}
+	}
+	if (!ok) {
+        return (struct nt_tzset){"", 0, 0, 0, false, false};
+	}
+
+	if (strlen(s) == 0) {
+		// Default DST rules per tzcode.
+		s = ",M3.2.0,M11.1.0";
+	}
+	// The TZ definition does not mention ';' here but tzcode accepts it.
+	if (s[0] != ',' && s[0] != ';') {
+        return (struct nt_tzset){"", 0, 0, 0, false, false};
+	}
+	/* s = s[1:]; // TODO: Need string work */
+    // START HERE
+
+	/* var startRule, endRule rule */
+	/* startRule, s, ok = tzsetRule(s) */
+	/* if !ok || len(s) == 0 || s[0] != ',' { */
+	/* 	return "", 0, 0, 0, false, false */
+	/* } */
+	/* s = s[1:] */
+	/* endRule, s, ok = tzsetRule(s) */
+	/* if !ok || len(s) > 0 { */
+	/* 	return "", 0, 0, 0, false, false */
+	/* } */
+
+	/* year, _, _, yday := absDate(uint64(sec+unixToInternal+internalToAbsolute), false) */
+
+	/* ysec := int64(yday*secondsPerDay) + sec%secondsPerDay */
+
+	/* // Compute start of year in seconds since Unix epoch. */
+	/* d := daysSinceEpoch(year) */
+	/* abs := int64(d * secondsPerDay) */
+	/* abs += absoluteToInternal + internalToUnix */
+
+	/* startSec := int64(tzruleTime(year, startRule, stdOffset)) */
+	/* endSec := int64(tzruleTime(year, endRule, dstOffset)) */
+	/* dstIsDST, stdIsDST := true, false */
+	/* // Note: this is a flipping of "DST" and "STD" while retaining the labels */
+	/* // This happens in southern hemispheres. The labelling here thus is a little */
+	/* // inconsistent with the goal. */
+	/* if endSec < startSec { */
+	/* 	startSec, endSec = endSec, startSec */
+	/* 	stdName, dstName = dstName, stdName */
+	/* 	stdOffset, dstOffset = dstOffset, stdOffset */
+	/* 	stdIsDST, dstIsDST = dstIsDST, stdIsDST */
+	/* } */
+
+	/* // The start and end values that we return are accurate */
+	/* // close to a daylight savings transition, but are otherwise */
+	/* // just the start and end of the year. That suffices for */
+	/* // the only caller that cares, which is Date. */
+	/* if ysec < startSec { */
+	/* 	return stdName, stdOffset, abs, startSec + abs, stdIsDST, true */
+	/* } else if ysec >= endSec { */
+	/* 	return stdName, stdOffset, endSec + abs, abs + 365*secondsPerDay, stdIsDST, true */
+	/* } else { */
+	/* 	return dstName, dstOffset, startSec + abs, endSec + abs, dstIsDST, true */
+	/* } */
+}
+
 // tzsetName returns the timezone name at the start of the tzset string s,
 // and the remainder of s, and reports whether the parsing is OK.
 struct nt_tzsetName nt_tzsetName(char *s)
@@ -1829,111 +1957,101 @@ struct nt_tzsetName nt_tzsetName(char *s)
 	}
 }
 
-/* struct nt_tzset { */
-/*     char *name; */
-/*     int offset; */
-/*     int start; */
-/*     int64_t end; */
-/*     bool isDST; */
-/*     bool ok; */
-/* }; */
-/* // tzset takes a timezone string like the one found in the TZ environment */
-/* // variable, the time of the last time zone transition expressed as seconds */
-/* // since January 1, 1970 00:00:00 UTC, and a time expressed the same way. */
-/* // We call this a tzset string since in C the function tzset reads TZ. */
-/* // The return values are as for lookup, plus ok which reports whether the */
-/* // parse succeeded. */
-/* struct nt_tzset nt_tzset(char *s, char *lastTxSec, int64_t sec) */
-/* { */
-/* 	char *tdName = NULL; */
-/*     char *dstName = NULL; */
-/* 	int	stdOffset = 0; */
-/*     int dstOffset = 0; */
+// UPDATE //////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
-/* 	stdName, s, ok = tzsetName(s) */
-/* 	if ok { */
-/* 		stdOffset, s, ok = tzsetOffset(s) */
-/* 	} */
-/* 	if !ok { */
-/* 		return "", 0, 0, 0, false, false */
-/* 	} */
+// tzsetOffset returns the timezone offset at the start of the tzset string s,
+// and the remainder of s, and reports whether the parsing is OK.
+// The timezone offset is returned as a number of seconds.
+struct nt_tzsetOffset nt_tzsetOffset(char *s)
+{
+    size_t sLen = strlen(s);
+	if (sLen == 0) {
+		return (struct nt_tzsetOffset){0, "", false};
+	}
+	bool neg = false;
+	if (s[0] == '+') {
+		/* s = s[1:]; */ // TODO: fix string
+	} else if (s[0] == '-') {
+		/* s = s[1:]; */ // TODO: fix string
+		neg = true;
+	}
 
-/* 	// The numbers in the tzset string are added to local time to get UTC, */
-/* 	// but our offsets are added to UTC to get local time, */
-/* 	// so we negate the number we see here. */
-/* 	stdOffset = -stdOffset */
+	// The tzdata code permits values up to 24 * 7 here,
+	// although POSIX does not.
+	struct nt_tzsetNum num = nt_tzsetNum(s, 0, 24*7);
+    int hours = num.num;
+    s = num.rest;
+    bool ok = num.ok;
+	if (!ok) {
+		return (struct nt_tzsetOffset){0, "", false};
+	}
+	int off = hours * nt_secondsPerHour;
+    sLen = strlen(s);
+	if (sLen == 0 || s[0] != ':') {
+		if (neg) {
+			off = -off;
+		}
+		return (struct nt_tzsetOffset){off, s, true};
+	}
 
-/* 	if len(s) == 0 || s[0] == ',' { */
-/* 		// No daylight savings time. */
-/* 		return stdName, stdOffset, lastTxSec, omega, false, true */
-/* 	} */
+	/* num = nt_tzsetNum(s[1:], 0, 59); // TODO: fix string */
+    int mins = num.num;
+    s = num.rest;
+    ok = num.ok;
+	if (!ok) {
+		return (struct nt_tzsetOffset){0, "", false};
+	}
+	off += mins * nt_secondsPerMinute;
+    sLen = strlen(s);
+	if (sLen == 0 || s[0] != ':') {
+		if (neg) {
+			off = -off;
+		}
+		return (struct nt_tzsetOffset){off, s, true};
+	}
 
-/* 	dstName, s, ok = tzsetName(s) */
-/* 	if ok { */
-/* 		if len(s) == 0 || s[0] == ',' { */
-/* 			dstOffset = stdOffset + secondsPerHour */
-/* 		} else { */
-/* 			dstOffset, s, ok = tzsetOffset(s) */
-/* 			dstOffset = -dstOffset // as with stdOffset, above */
-/* 		} */
-/* 	} */
-/* 	if !ok { */
-/* 		return "", 0, 0, 0, false, false */
-/* 	} */
+	/* num = tzsetNum(s[1:], 0, 59); // TODO: fix string */
+    int secs = num.num;
+    s = num.rest;
+    ok = num.ok;
+	if (!ok) {
+		return (struct nt_tzsetOffset){0, "", false};
+	}
+	off += secs;
 
-/* 	if len(s) == 0 { */
-/* 		// Default DST rules per tzcode. */
-/* 		s = ",M3.2.0,M11.1.0" */
-/* 	} */
-/* 	// The TZ definition does not mention ';' here but tzcode accepts it. */
-/* 	if s[0] != ',' && s[0] != ';' { */
-/* 		return "", 0, 0, 0, false, false */
-/* 	} */
-/* 	s = s[1:] */
+	if (neg) {
+		off = -off;
+	}
+	return (struct nt_tzsetOffset){off, s, true};
+}
 
-/* 	var startRule, endRule rule */
-/* 	startRule, s, ok = tzsetRule(s) */
-/* 	if !ok || len(s) == 0 || s[0] != ',' { */
-/* 		return "", 0, 0, 0, false, false */
-/* 	} */
-/* 	s = s[1:] */
-/* 	endRule, s, ok = tzsetRule(s) */
-/* 	if !ok || len(s) > 0 { */
-/* 		return "", 0, 0, 0, false, false */
-/* 	} */
-
-/* 	year, _, _, yday := absDate(uint64(sec+unixToInternal+internalToAbsolute), false) */
-
-/* 	ysec := int64(yday*secondsPerDay) + sec%secondsPerDay */
-
-/* 	// Compute start of year in seconds since Unix epoch. */
-/* 	d := daysSinceEpoch(year) */
-/* 	abs := int64(d * secondsPerDay) */
-/* 	abs += absoluteToInternal + internalToUnix */
-
-/* 	startSec := int64(tzruleTime(year, startRule, stdOffset)) */
-/* 	endSec := int64(tzruleTime(year, endRule, dstOffset)) */
-/* 	dstIsDST, stdIsDST := true, false */
-/* 	// Note: this is a flipping of "DST" and "STD" while retaining the labels */
-/* 	// This happens in southern hemispheres. The labelling here thus is a little */
-/* 	// inconsistent with the goal. */
-/* 	if endSec < startSec { */
-/* 		startSec, endSec = endSec, startSec */
-/* 		stdName, dstName = dstName, stdName */
-/* 		stdOffset, dstOffset = dstOffset, stdOffset */
-/* 		stdIsDST, dstIsDST = dstIsDST, stdIsDST */
-/* 	} */
-
-/* 	// The start and end values that we return are accurate */
-/* 	// close to a daylight savings transition, but are otherwise */
-/* 	// just the start and end of the year. That suffices for */
-/* 	// the only caller that cares, which is Date. */
-/* 	if ysec < startSec { */
-/* 		return stdName, stdOffset, abs, startSec + abs, stdIsDST, true */
-/* 	} else if ysec >= endSec { */
-/* 		return stdName, stdOffset, endSec + abs, abs + 365*secondsPerDay, stdIsDST, true */
-/* 	} else { */
-/* 		return dstName, dstOffset, startSec + abs, endSec + abs, dstIsDST, true */
-/* 	} */
-/* } */
-
+// tzsetNum parses a number from a tzset string.
+// It returns the number, and the remainder of the string, and reports success.
+// The number must be between min and max.
+struct nt_tzsetNum nt_tzsetNum(char *s, int min, int max)
+{
+    size_t sLen = strlen(s);
+	if (sLen == 0) {
+		return (struct nt_tzsetNum){0, "", false};
+	}
+	int num = 0;
+    for (int i = 0; i < sLen; i++) {
+        char r = s[i];
+		if (r < '0' || r > '9') {
+			if (i == 0 || num < min) {
+                return (struct nt_tzsetNum){0, "", false};
+			}
+			/* return (struct nt_tzsetNum){num, s[i:], true}; */ // TODO: Fix string
+		}
+		num *= 10;
+		num += r - '0';
+		if (num > max) {
+            return (struct nt_tzsetNum){0, "", false};
+		}
+	}
+	if (num < min) {
+        return (struct nt_tzsetNum){0, "", false};
+	}
+    return (struct nt_tzsetNum){num, "", true};
+}

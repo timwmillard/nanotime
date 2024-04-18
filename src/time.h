@@ -350,5 +350,6 @@ nt_Duration nt_Until(nt_Time t);
 nt_Duration nt_Since(nt_Time t);
 bool nt_TimeIsDST(nt_Time t);
 nt_Time nt_TimeRound(nt_Time t, nt_Duration d);
+char *nt_LocationString(nt_Location *l);
 
 #endif
